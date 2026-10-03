@@ -1,0 +1,9 @@
+{
+  "name": "portal-camstudy-final",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portal pembelajaran CamStudy",
+  "main": "PORTAL_CAMSTUDY_FINAL_SERVER.js",
+  "scripts": { "start": "node PORTAL_CAMSTUDY_FINAL_SERVER.js" },
+  "dependencies": { "express": "^4.21.2" }
+}
