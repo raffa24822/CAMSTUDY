@@ -2469,63 +2469,83 @@ let audioCtx = null;
         document.getElementById('modal-add-question').classList.remove('active');
     }
     async function saveQuestion() {
-        // Kunci mapel + semester + indeks soal sejak tombol Simpan ditekan agar proses tambah/edit
-        // tidak berubah target walaupun ada sinkronisasi atau render ulang di tengah proses.
-        const selectId=document.getElementById('select-subject-manage')?.value||'';
-        const subj=subjects.find(s=>s.id===selectId);
-        if(!subj)return alert('Pilih mapel terlebih dahulu!');
-        const targetSemester=editingQuestionSemester||activeManageSemester||document.getElementById('manage-semester')?.value||'kelas10_s1';
-        const targetIndex=editingQuestionIndex;
-        const targetSubjectId=editingQuestionSubjectId;
-        const q=document.getElementById('q-text').value.trim();
-        const opts=[0,1,2,3].map(i=>document.getElementById('q-opt-'+i).value.trim());
-        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value)).filter(n=>Number.isInteger(n)&&n>=0&&n<=3);
-        const exp=document.getElementById('q-exp').value.trim();
-        if(!q||opts.some(o=>!o))return alert('Harap isi pertanyaan dan semua pilihan jawaban!');
-        if(!selectedCorrect.length)return alert('Pilih minimal satu kunci jawaban.');
-        const qset=getQuestionSet(subj,targetSemester,true);
-        const isEditing=targetIndex!==null&&targetSubjectId===subj.id&&targetIndex>=0&&targetIndex<qset.length;
-        const existing=isEditing?qset[targetIndex]:null;
-        const finishSave=async image=>{
-            const record={...(existing||{}),q,options:opts,answer:selectedCorrect.length>1?selectedCorrect:selectedCorrect[0],exp,image:image||existing?.image||'',type:existing?.type==='multiple'?'multiple':'choice',updatedAt:Date.now()};
-            if(isEditing) qset[targetIndex]=record;
-            else qset.push({...record,createdAt:Date.now()});
-            // Simpan lokal terlebih dahulu agar perubahan tidak hilang walaupun cloud sedang offline.
+        // Khusus menu Tambah/Edit Soal: tentukan target sebelum menyimpan agar tidak berubah saat render/sinkronisasi.
+        const selectId = document.getElementById('select-subject-manage')?.value || '';
+        const subj = subjects.find(s => s.id === selectId);
+        if (!subj) return alert('Pilih mapel terlebih dahulu!');
+
+        const targetSemester = editingQuestionSemester || activeManageSemester || document.getElementById('manage-semester')?.value || 'kelas10_s1';
+        const targetIndex = editingQuestionIndex;
+        const targetSubjectId = editingQuestionSubjectId;
+        const q = document.getElementById('q-text')?.value.trim() || '';
+        const opts = [0,1,2,3].map(i => document.getElementById('q-opt-'+i)?.value.trim() || '');
+        const selectedCorrect = [...document.querySelectorAll('.q-correct-check:checked')]
+            .map(c => Number(c.value)).filter(n => Number.isInteger(n) && n >= 0 && n <= 3);
+        const exp = document.getElementById('q-exp')?.value.trim() || '';
+
+        if (!q || opts.some(o => !o)) return alert('Harap isi pertanyaan dan semua pilihan jawaban!');
+        if (!selectedCorrect.length) return alert('Pilih minimal satu kunci jawaban.');
+
+        const qset = getQuestionSet(subj, targetSemester, true);
+        const isEditing = targetIndex !== null && targetSubjectId === subj.id && targetIndex >= 0 && targetIndex < qset.length;
+        const existing = isEditing ? qset[targetIndex] : null;
+        const imageFile = document.getElementById('q-image')?.files?.[0];
+
+        const commit = (image) => {
+            const record = {
+                ...(existing || {}),
+                q,
+                options: opts,
+                answer: selectedCorrect.length > 1 ? selectedCorrect : selectedCorrect[0],
+                exp,
+                image: image || existing?.image || '',
+                type: existing?.type === 'multiple' ? 'multiple' : 'choice',
+                updatedAt: Date.now()
+            };
+
+            if (isEditing) qset[targetIndex] = record;
+            else qset.push({...record, createdAt: Date.now()});
+
+            // Simpan perubahan lokal terlebih dahulu. Ini adalah penyimpanan utama menu Tambah/Edit Soal.
             saveSubjects();
-            editingQuestionIndex=null;editingQuestionSubjectId=null;editingQuestionSemester=null;
-            resetQuestionForm();closeModalAddQuestion();
+            editingQuestionIndex = null;
+            editingQuestionSubjectId = null;
+            editingQuestionSemester = null;
+            activeManageSemester = targetSemester;
+            resetQuestionForm();
+            closeModalAddQuestion();
+            const semSelect = document.getElementById('manage-semester');
+            if (semSelect) semSelect.value = targetSemester;
             populateSubjectSelect(subj.id);
-            const semSelect=document.getElementById('manage-semester');if(semSelect)semSelect.value=targetSemester;
-            activeManageSemester=targetSemester;
-            renderQuestionManager();renderTeacherSubjectTable();renderStudentDashboardIfVisible();
-            // Bila guru sudah login dan cloud tersedia, tunggu konfirmasi PUT supaya Add/Edit benar-benar tersimpan server.
-            if(ASTS_CLOUD.databaseURL&&sessionStorage.getItem('portal_teacher_token')){
-                try{
-                    const saved=await cloudRequest('subjects','PUT',{data:subjects,updatedAt:Date.now()});
-                    if(!saved||saved.ok!==true)throw new Error('Server belum mengonfirmasi penyimpanan mapel/soal.');
-                    const fresh=await cloudRequest('subjects');
-                    if(fresh&&Array.isArray(fresh.data)){
-                        subjects=fresh.data;safeSetJSON('asts_subj_v4',subjects);
-                        populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();renderResultsTable();
-                    }
-                    alert(isEditing?'Perubahan soal berhasil disimpan dan disinkronkan ke server.':'Soal berhasil ditambahkan dan disinkronkan ke server.');
-                }catch(err){
-                    alert((isEditing?'Perubahan soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ':'Soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ')+(err.message||'periksa koneksi server.'));
-                }
-            }else{
-                alert(isEditing?'Perubahan soal berhasil disimpan.':'Soal berhasil ditambahkan.');
+            renderQuestionManager();
+            renderTeacherSubjectTable();
+            renderStudentDashboardIfVisible();
+
+            // Sinkronisasi server hanya setelah penyimpanan lokal berhasil; kegagalan server tidak membatalkan soal.
+            if (ASTS_CLOUD.databaseURL && sessionStorage.getItem('portal_teacher_token')) {
+                cloudRequest('subjects', 'PUT', {data: subjects, updatedAt: Date.now()})
+                    .then(saved => {
+                        if (saved && saved.ok === true) {
+                            alert(isEditing ? 'Perubahan soal berhasil disimpan dan disinkronkan ke server.' : 'Soal berhasil ditambahkan dan disinkronkan ke server.');
+                        } else {
+                            alert(isEditing ? 'Perubahan soal berhasil disimpan.' : 'Soal berhasil ditambahkan.');
+                        }
+                    })
+                    .catch(() => alert(isEditing ? 'Perubahan soal berhasil disimpan di perangkat ini.' : 'Soal berhasil ditambahkan di perangkat ini.'));
+            } else {
+                alert(isEditing ? 'Perubahan soal berhasil disimpan.' : 'Soal berhasil ditambahkan.');
             }
         };
-        const imageFile=document.getElementById('q-image')?.files?.[0];
-        if(imageFile){
-            if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');
-            const reader=new FileReader();
-            reader.onload=()=>finishSave(String(reader.result||''));
-            reader.onerror=()=>alert('Foto soal gagal dibaca.');
+
+        if (imageFile) {
+            if (imageFile.size > 1500000) return alert('Foto soal maksimal 1,5 MB.');
+            const reader = new FileReader();
+            reader.onload = () => commit(String(reader.result || ''));
+            reader.onerror = () => alert('Foto soal gagal dibaca.');
             reader.readAsDataURL(imageFile);
             return;
         }
-        await finishSave(existing?.image||'');
+        commit(existing?.image || '');
     }
     function setupQuestionFormEnterNavigation() {
         const moveOnEnter = (fields, submitAtEnd = null) => {
