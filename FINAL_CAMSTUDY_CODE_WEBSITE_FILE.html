@@ -1530,7 +1530,11 @@ let audioCtx = null;
                     const studentScreen = document.getElementById('screen-dashboard-siswa');
                     if (studentScreen && studentScreen.classList.contains('active')) renderStudentDashboard();
                     const teacherScreen = document.getElementById('screen-dashboard-guru');
-                    if (teacherScreen && teacherScreen.classList.contains('active')) renderTeacherSubjectTable();
+                    if (teacherScreen && teacherScreen.classList.contains('active')) {
+                        renderTeacherSubjectTable();
+                        // Mapel baru dari perangkat/server lain langsung masuk ke filter Rekap Nilai.
+                        renderResultsTable();
+                    }
                 }
             }
         } catch (_) {}
@@ -2465,13 +2469,63 @@ let audioCtx = null;
         document.getElementById('modal-add-question').classList.remove('active');
     }
     async function saveQuestion() {
-        const selectId=document.getElementById('select-subject-manage')?.value,subj=subjects.find(s=>s.id===selectId);if(!subj)return alert('Pilih mapel terlebih dahulu!');
-        const q=document.getElementById('q-text').value.trim(),opts=[0,1,2,3].map(i=>document.getElementById('q-opt-'+i).value.trim());
-        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value)).filter(n=>Number.isInteger(n)&&n>=0&&n<=3),exp=document.getElementById('q-exp').value.trim();
-        if(!q||opts.some(o=>!o))return alert('Harap isi pertanyaan dan semua pilihan jawaban!');if(!selectedCorrect.length)return alert('Pilih minimal satu kunci jawaban.');
-        const targetSemester=editingQuestionSemester||activeManageSemester||'kelas10_s1';const qset=getQuestionSet(subj,targetSemester,true),isEditing=editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id&&editingQuestionSemester===targetSemester&&!!qset[editingQuestionIndex],existing=isEditing?qset[editingQuestionIndex]:null;
-        const saveRecord=image=>{const record={...(existing||{}),q,options:opts,answer:selectedCorrect.length>1?selectedCorrect:selectedCorrect[0],exp,image:image||existing?.image||'',type:existing?.type==='multiple'?'multiple':'choice',updatedAt:Date.now()};if(isEditing)qset[editingQuestionIndex]=record;else qset.push({...record,createdAt:Date.now()});saveSubjects();editingQuestionIndex=null;editingQuestionSubjectId=null;editingQuestionSemester=null;resetQuestionForm();closeModalAddQuestion();populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();renderStudentDashboardIfVisible();alert(isEditing?'Perubahan soal berhasil disimpan dan disinkronkan.':'Soal berhasil ditambahkan dan disinkronkan.');};
-        const imageFile=document.getElementById('q-image')?.files?.[0];if(imageFile){if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');const reader=new FileReader();reader.onload=()=>saveRecord(String(reader.result||''));reader.onerror=()=>alert('Foto soal gagal dibaca.');reader.readAsDataURL(imageFile);return;}saveRecord(existing?.image||'');
+        // Kunci mapel + semester + indeks soal sejak tombol Simpan ditekan agar proses tambah/edit
+        // tidak berubah target walaupun ada sinkronisasi atau render ulang di tengah proses.
+        const selectId=document.getElementById('select-subject-manage')?.value||'';
+        const subj=subjects.find(s=>s.id===selectId);
+        if(!subj)return alert('Pilih mapel terlebih dahulu!');
+        const targetSemester=editingQuestionSemester||activeManageSemester||document.getElementById('manage-semester')?.value||'kelas10_s1';
+        const targetIndex=editingQuestionIndex;
+        const targetSubjectId=editingQuestionSubjectId;
+        const q=document.getElementById('q-text').value.trim();
+        const opts=[0,1,2,3].map(i=>document.getElementById('q-opt-'+i).value.trim());
+        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value)).filter(n=>Number.isInteger(n)&&n>=0&&n<=3);
+        const exp=document.getElementById('q-exp').value.trim();
+        if(!q||opts.some(o=>!o))return alert('Harap isi pertanyaan dan semua pilihan jawaban!');
+        if(!selectedCorrect.length)return alert('Pilih minimal satu kunci jawaban.');
+        const qset=getQuestionSet(subj,targetSemester,true);
+        const isEditing=targetIndex!==null&&targetSubjectId===subj.id&&targetIndex>=0&&targetIndex<qset.length;
+        const existing=isEditing?qset[targetIndex]:null;
+        const finishSave=async image=>{
+            const record={...(existing||{}),q,options:opts,answer:selectedCorrect.length>1?selectedCorrect:selectedCorrect[0],exp,image:image||existing?.image||'',type:existing?.type==='multiple'?'multiple':'choice',updatedAt:Date.now()};
+            if(isEditing) qset[targetIndex]=record;
+            else qset.push({...record,createdAt:Date.now()});
+            // Simpan lokal terlebih dahulu agar perubahan tidak hilang walaupun cloud sedang offline.
+            saveSubjects();
+            editingQuestionIndex=null;editingQuestionSubjectId=null;editingQuestionSemester=null;
+            resetQuestionForm();closeModalAddQuestion();
+            populateSubjectSelect(subj.id);
+            const semSelect=document.getElementById('manage-semester');if(semSelect)semSelect.value=targetSemester;
+            activeManageSemester=targetSemester;
+            renderQuestionManager();renderTeacherSubjectTable();renderStudentDashboardIfVisible();
+            // Bila guru sudah login dan cloud tersedia, tunggu konfirmasi PUT supaya Add/Edit benar-benar tersimpan server.
+            if(ASTS_CLOUD.databaseURL&&sessionStorage.getItem('portal_teacher_token')){
+                try{
+                    const saved=await cloudRequest('subjects','PUT',{data:subjects,updatedAt:Date.now()});
+                    if(!saved||saved.ok!==true)throw new Error('Server belum mengonfirmasi penyimpanan mapel/soal.');
+                    const fresh=await cloudRequest('subjects');
+                    if(fresh&&Array.isArray(fresh.data)){
+                        subjects=fresh.data;safeSetJSON('asts_subj_v4',subjects);
+                        populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();renderResultsTable();
+                    }
+                    alert(isEditing?'Perubahan soal berhasil disimpan dan disinkronkan ke server.':'Soal berhasil ditambahkan dan disinkronkan ke server.');
+                }catch(err){
+                    alert((isEditing?'Perubahan soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ':'Soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ')+(err.message||'periksa koneksi server.'));
+                }
+            }else{
+                alert(isEditing?'Perubahan soal berhasil disimpan.':'Soal berhasil ditambahkan.');
+            }
+        };
+        const imageFile=document.getElementById('q-image')?.files?.[0];
+        if(imageFile){
+            if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');
+            const reader=new FileReader();
+            reader.onload=()=>finishSave(String(reader.result||''));
+            reader.onerror=()=>alert('Foto soal gagal dibaca.');
+            reader.readAsDataURL(imageFile);
+            return;
+        }
+        await finishSave(existing?.image||'');
     }
     function setupQuestionFormEnterNavigation() {
         const moveOnEnter = (fields, submitAtEnd = null) => {
@@ -2579,7 +2633,11 @@ let audioCtx = null;
         const subjectSel=document.getElementById('results-filter-subject');
         if(subjectSel){
             const old=subjectSel.value||'all';
-            const names=[...new Set((Array.isArray(results)?results:[]).map(getPureResultSubject).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'id',{sensitivity:'base'}));
+            // Tampilkan SEMUA mapel yang tersedia, bukan hanya mapel yang sudah memiliki nilai.
+            // Nilai tetap difilter berdasarkan mapel yang dipilih; "Semua Mata Pelajaran" baru mencampurkan semuanya.
+            const subjectNames=(Array.isArray(subjects)?subjects:[]).map(s=>String(s&&s.name||'').trim()).filter(Boolean);
+            const resultNames=(Array.isArray(results)?results:[]).map(getPureResultSubject).map(v=>String(v||'').trim()).filter(Boolean);
+            const names=[...new Set([...subjectNames,...resultNames])].sort((a,b)=>a.localeCompare(b,'id',{sensitivity:'base'}));
             subjectSel.innerHTML='<option value="all">Semua Mata Pelajaran</option>'+names.map(n=>`<option value="${escapeReviewText(n)}">${escapeReviewText(n)}</option>`).join('');
             if(names.includes(old))subjectSel.value=old;else subjectSel.value='all';
         }
@@ -2707,122 +2765,6 @@ let audioCtx = null;
     }
 
     // Mark a student offline when the tab is actually closed; periodic heartbeat below handles active sessions.
-    let teacherContentMode='task';
-    function setTeacherContentMode(mode){teacherContentMode=mode==='material'?'material':'task';const isMaterial=teacherContentMode==='material';const heading=document.getElementById('teacher-content-heading');const desc=document.getElementById('teacher-content-description');const saveLabel=document.getElementById('save-content-label');const deadline=document.getElementById('task-deadline');const instructions=document.getElementById('task-instructions');const descriptionLabel=document.getElementById('task-description-label');const descriptionInput=document.getElementById('task-description');if(descriptionLabel)descriptionLabel.textContent=isMaterial?'Isi materi pelajaran':'Deskripsi tugas';if(descriptionInput)descriptionInput.placeholder=isMaterial?'Tulis atau tempel materi lengkap di sini':'Jelaskan deskripsi tugas';if(heading)heading.textContent=isMaterial?'📚 Materi Pelajaran':'📝 Tugas Harian';if(desc)desc.textContent=isMaterial?'Tambahkan materi berdasarkan mapel, kelas, semester, judul, nama guru, isi materi, dan dokumen. Materi akan tersedia pada dashboard siswa.':'Buat tugas, tentukan kelas dan semester, serta pantau pengumpulan siswa.';if(saveLabel)saveLabel.textContent=isMaterial?'Simpan Materi':'Simpan Tugas';if(deadline)deadline.parentElement.style.display=isMaterial?'none':'';if(instructions)instructions.parentElement.style.display=isMaterial?'none':'';const subs=document.getElementById('teacher-submissions-list')?.parentElement;if(subs)subs.style.display=isMaterial?'none':'';const filter=document.getElementById('task-filter');if(filter)filter.value=teacherContentMode;renderTeacherTasks();}
-    function saveTaskCollections(){safeSetJSON('asts_tasks_v1',teacherTasks);safeSetJSON('asts_materials_v1',teacherMaterials);safeSetJSON('asts_submissions_v1',taskSubmissions);cloudPush('tasks',teacherTasks);cloudPush('materials',teacherMaterials);cloudPush('submissions',taskSubmissions);}
-    async function saveAllToServerNow(){
-        const status=document.getElementById('task-server-save-status');
-        safeSetJSON('asts_tasks_v1',teacherTasks);safeSetJSON('asts_materials_v1',teacherMaterials);safeSetJSON('asts_submissions_v1',taskSubmissions);
-        if(!ASTS_CLOUD.databaseURL||!ASTS_CLOUD.apiKey){if(status)status.textContent='Tersimpan di perangkat ini saja. Hubungkan server terlebih dahulu agar data tidak hilang saat berganti perangkat.';return showSyncResult(false,'Server belum terhubung. Data tetap tersimpan di perangkat ini, tetapi belum tersimpan ke server bersama.');}
-        if(status)status.textContent='Menyimpan tugas, materi, dan pengumpulan ke server…';
-        try{await Promise.all([cloudRequest('tasks','PUT',{data:teacherTasks,updatedAt:Date.now()}),cloudRequest('materials','PUT',{data:teacherMaterials,updatedAt:Date.now()}),cloudRequest('submissions','PUT',{data:taskSubmissions,updatedAt:Date.now()})]);
-          if(status)status.textContent='✓ Tersimpan di server. Materi dan tugas dapat dimuat kembali setelah portal dibuka.';
-          showSyncResult(true,'Tugas, materi, dan pengumpulan berhasil disimpan ke server.');
-        }catch(e){if(status)status.textContent='Gagal menyimpan ke server: '+e.message+'. Data lokal tetap ada.';showSyncResult(false,'Gagal menyimpan data ke server: '+e.message);}
-    }
-    function populateTaskSubjects(){['task-subject','task-filter-subject'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const old=el.value;el.innerHTML=id==='task-filter-subject'?'<option value="all">Semua mapel</option>':'';subjects.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'})).forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=subjectEmoji(s.icon,s.name)+' '+s.name;el.appendChild(o)});if([...el.options].some(o=>o.value===old))el.value=old;});}
-    async function saveTeacherTask(){const kind=teacherContentMode,subjectId=document.getElementById('task-subject').value,title=document.getElementById('task-title').value.trim();if(!title)return alert('Isi judul terlebih dahulu.');const file=document.getElementById('task-file').files[0];if(file&&file.size>1500000)return alert('File maksimal 1,5 MB agar aman untuk sinkronisasi.');const save=(fileData='',fileName='')=>{const rec={id:'task_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),kind,subjectId,semester:document.getElementById('task-semester')?.value||'kelas10_s1',subject:(subjects.find(s=>s.id===subjectId)||{}).name||'Umum',title,teacher:document.getElementById('task-teacher').value.trim()||(currentTeacher?.displayName||currentTeacher?.username||'Guru'),author:document.getElementById('task-author').value.trim()||(currentTeacher?.displayName||currentTeacher?.username||'Guru'),deadline:kind==='task'?document.getElementById('task-deadline').value:'',description:document.getElementById('task-description').value.trim(),instructions:document.getElementById('task-instructions').value.trim(),fileData,fileName,createdAt:Date.now(),updatedAt:Date.now()};const saveBtn=document.querySelector('#tab-tugas-harian button[onclick="saveTeacherTask()"]');const editId=saveBtn?.dataset.editId;const target=kind==='task'?teacherTasks:teacherMaterials;if(editId){const idx=target.findIndex(x=>x.id===editId);if(idx>=0){rec.id=editId;rec.createdAt=target[idx].createdAt||rec.createdAt;if(!fileData){rec.fileData=target[idx].fileData||'';rec.fileName=target[idx].fileName||'';}target[idx]=rec;}else target.push(rec);if(saveBtn){delete saveBtn.dataset.editId;saveBtn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> <span id="save-content-label">Simpan '+(teacherContentMode==='material'?'Materi':'Tugas')+'</span>';}}else target.push(rec);saveTaskCollections();renderTeacherTasks();renderStudentTasks();['task-title','task-description','task-instructions','task-deadline','task-file'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});alert(kind==='material'?'Materi berhasil disimpan dan tersedia di dashboard siswa.':'Tugas berhasil disimpan.');};if(file){const reader=new FileReader();reader.onload=()=>save(String(reader.result),file.name);reader.readAsDataURL(file);}else save();}
-    function renderTeacherTasks(){const box=document.getElementById('teacher-task-list'),subBox=document.getElementById('teacher-submissions-list');if(!box)return;const kind=teacherContentMode,sid=document.getElementById('task-filter-subject')?.value||'all';const list=[...teacherTasks,...teacherMaterials].filter(t=>(t.kind||'material')===kind&&(sid==='all'||t.subjectId===sid)).sort((a,b)=>String(a.title||'').localeCompare(String(b.title||''),'id',{sensitivity:'base'}));box.innerHTML=list.length?list.map(t=>`<article class="glass-panel" style="padding:14px;margin:10px 0"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><strong>${escapeReviewText(t.title)}</strong><span class="badge badge-primary">${t.kind==='task'?'Tugas harian':'Materi pelajaran'}</span></div><p>${escapeReviewText(t.subject||'Umum')} • ${escapeReviewText(SEMESTER_LABELS[t.semester]||'Kelas 10 • Semester 1')} • Guru: ${escapeReviewText(t.teacher)} • Penyusun: ${escapeReviewText(t.author)}</p><p>${escapeReviewText(t.description||'')}</p><p>${escapeReviewText(t.instructions||'')}</p>${t.deadline?'<p><strong>Deadline:</strong> '+escapeReviewText(new Date(t.deadline).toLocaleString('id-ID'))+'</p>':''}${t.fileData?`<a href="${t.fileData}" download="${escapeReviewText(t.fileName||'materi')}">Buka/unduh ${escapeReviewText(t.fileName||'dokumen')}</a>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${t.kind==='task'?`<button class="btn btn-secondary" onclick="viewTaskSubmissions('${t.id}')">Lihat pengumpulan</button>`:''}<button class="btn btn-secondary" onclick="editTeacherTask('${t.id}')">Edit</button><button class="btn btn-danger" onclick="deleteTeacherTask('${t.id}','${t.kind}')">Hapus</button></div></article>`).join(''):(kind==='task'?'<p>Belum ada tugas harian.</p>':'<p>Belum ada materi pelajaran.</p>');if(subBox&&!subBox.dataset.opened)subBox.innerHTML='<p>Pilih “Lihat pengumpulan” pada tugas untuk menampilkan kiriman siswa.</p>';}
-    function subjectTaskIcon(subject){
-        const n=String(subject||'').toLowerCase();
-        if(/matematika|math/.test(n))return 'fa-calculator';
-        if(/bahasa indonesia|indonesia/.test(n))return 'fa-book-open';
-        if(/bahasa inggris|english/.test(n))return 'fa-language';
-        if(/informatika|komputer|tkj|pemrograman/.test(n))return 'fa-laptop-code';
-        if(/ipa|fisika|kimia|biologi/.test(n))return 'fa-flask';
-        if(/sejarah|sosiologi|geografi|ekonomi|ppkn|pancasila/.test(n))return 'fa-landmark';
-        if(/agama/.test(n))return 'fa-book-bible';
-        if(/seni|musik|budaya/.test(n))return 'fa-palette';
-        return 'fa-book';
-    }
-    function renderCards(items){
-        const list=Array.isArray(items)?items:[];
-        if(!list.length)return '<div style="padding:14px;text-align:center;color:var(--text-muted)">Belum ada konten dari guru.</div>';
-        return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px">${list.map(t=>{
-          const sub=taskSubmissions.find(x=>x.taskId===t.id&&String(x.student).toLowerCase()===String(currentStudent?.name||'').toLowerCase());
-          const expired=t.kind==='task'&&t.deadline&&new Date(t.deadline).getTime()<Date.now();
-          const status=t.kind!=='task'?'Materi belajar':sub?`Sudah dikumpulkan${sub.grade!==null&&sub.grade!==undefined?' • Nilai '+sub.grade:''}`:expired?'Deadline terlewat':'Belum dikumpulkan';
-          return `<article class="glass-panel" style="padding:16px;margin:0;display:flex;flex-direction:column;gap:10px;border:1px solid var(--glass-border);min-width:0"><div style="display:flex;align-items:center;gap:12px"><div style="width:48px;height:48px;flex:0 0 48px;display:grid;place-items:center;border-radius:14px;background:var(--primary-glow);color:var(--text-main);font-size:20px"><i class="fa-solid ${subjectTaskIcon(t.subject)}"></i></div><div style="min-width:0;flex:1"><div style="font-size:12px;color:var(--text-muted)">${escapeReviewText(t.subject||'Umum')}</div><strong style="display:block;overflow-wrap:anywhere">${escapeReviewText(t.title)}</strong></div></div><span class="badge ${t.kind==='task'?'badge-warning':'badge-primary'}" style="width:max-content">${t.kind==='task'?'Tugas harian':'Materi pelajaran'}</span><div style="font-size:13px;color:var(--text-muted)"><i class="fa-regular fa-user"></i> ${escapeReviewText(t.teacher||'Guru')}<br>${t.deadline?`<i class="fa-regular fa-clock"></i> Deadline: ${escapeReviewText(new Date(t.deadline).toLocaleString('id-ID'))}`:'<i class="fa-solid fa-book-open"></i> Bahan belajar'}</div><div style="font-size:12px"><span class="badge ${sub?'badge-success':expired?'badge-danger':'badge-primary'}">${escapeReviewText(status)}</span></div><button class="btn btn-primary" style="width:100%;margin-top:auto" onclick="openTaskDetails('${String(t.id).replace(/'/g,'')}')"><i class="fa-solid fa-eye"></i> ${t.kind==='task'?'Lihat Tugas':'Buka Materi'}</button></article>`;
-        }).join('')}</div>`;
-    }
-    function renderStudentTasks(){
-        const box=document.getElementById('student-task-list');
-        const materialBox=document.getElementById('student-material-list');
-        if(!box)return;
-        const all=[...teacherTasks,...teacherMaterials].sort((a,b)=>String(a.title||'').localeCompare(String(b.title||''),'id',{sensitivity:'base'}));
-        box.innerHTML=renderCards(all.filter(t=>t.kind==='task'));
-        const chosenSemester=document.getElementById('student-material-semester')?.value||'all';
-        if(materialBox)materialBox.innerHTML=renderCards(all.filter(t=>t.kind!=='task'&&(chosenSemester==='all'||(t.semester||'kelas10_s1')===chosenSemester)));
-    }
-    function openTaskDetails(taskId){
-        const t=[...teacherTasks,...teacherMaterials].find(x=>x.id===taskId);if(!t)return alert('Tugas tidak ditemukan.');
-        const sub=taskSubmissions.find(x=>x.taskId===t.id&&String(x.student).toLowerCase()===String(currentStudent?.name||'').toLowerCase());
-        const expired=t.kind==='task'&&t.deadline&&new Date(t.deadline).getTime()<Date.now();
-        const status=t.kind!=='task'?'Materi belajar':sub?`Sudah dikumpulkan${sub.grade!==null&&sub.grade!==undefined?' • Nilai: '+sub.grade:' • Menunggu penilaian'}`:expired?'Deadline terlewat':'Belum dikumpulkan';
-        let modal=document.getElementById('task-detail-modal');
-        if(!modal){modal=document.createElement('div');modal.id='task-detail-modal';modal.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.82);display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto';modal.onclick=e=>{if(e.target===modal)closeTaskDetails()};document.body.appendChild(modal);}
-        modal.style.display='flex';
-        modal.innerHTML=`<section class="glass-panel" role="dialog" aria-modal="true" aria-label="Detail tugas" style="width:min(720px,100%);max-height:92vh;overflow:auto;padding:clamp(16px,4vw,26px);border:1px solid var(--glass-border)">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div style="display:flex;gap:12px;align-items:center"><div style="width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:var(--primary-glow);font-size:22px"><i class="fa-solid ${subjectTaskIcon(t.subject)}"></i></div><div><div style="color:var(--text-muted);font-size:13px">${escapeReviewText(t.subject||'Umum')}</div><h2 style="font-size:clamp(19px,4vw,25px);overflow-wrap:anywhere">${escapeReviewText(t.title)}</h2></div></div><button class="btn btn-secondary" onclick="closeTaskDetails()" aria-label="Tutup detail"><i class="fa-solid fa-xmark"></i></button></div>
-          <div style="margin:16px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px"><div class="glass-panel" style="padding:12px"><small style="color:var(--text-muted)">Guru</small><p style="margin-top:4px"><i class="fa-regular fa-user"></i> ${escapeReviewText(t.teacher||'Belum dicantumkan')}</p></div><div class="glass-panel" style="padding:12px"><small style="color:var(--text-muted)">Tanggal dibuat</small><p style="margin-top:4px">${t.createdAt?escapeReviewText(new Date(t.createdAt).toLocaleString('id-ID')):'-'}</p></div><div class="glass-panel" style="padding:12px"><small style="color:var(--text-muted)">Deadline</small><p style="margin-top:4px">${t.deadline?escapeReviewText(new Date(t.deadline).toLocaleString('id-ID')):'Tidak ditentukan'}</p></div></div>
-          <div style="margin:14px 0"><h3><i class="fa-solid fa-circle-info"></i> Tugasnya apa?</h3><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:7px">${escapeReviewText(t.description||'Guru belum menambahkan deskripsi.')}</p></div>
-          <div style="margin:14px 0"><h3><i class="fa-solid fa-list-check"></i> Instruksi dan cara pengerjaan</h3><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:7px">${escapeReviewText(t.instructions||'Ikuti arahan guru yang diberikan di kelas.')}</p></div>
-          ${t.fileData?`<div style="margin:14px 0"><h3><i class="fa-solid fa-paperclip"></i> Lampiran dari guru</h3><a class="btn btn-secondary" style="display:inline-block;margin-top:8px" href="${t.fileData}" download="${escapeReviewText(t.fileName||'lampiran')}"><i class="fa-solid fa-download"></i> Buka/unduh ${escapeReviewText(t.fileName||'lampiran')}</a></div>`:''}
-          <div style="margin:16px 0"><h3>Status tugas</h3><p style="margin-top:7px"><span class="badge ${sub?'badge-success':expired?'badge-danger':'badge-primary'}">${escapeReviewText(status)}</span></p>${sub?`<div class="glass-panel" style="padding:12px;margin-top:10px"><p><strong>Waktu dikumpulkan:</strong> ${escapeReviewText(new Date(sub.submittedAt).toLocaleString('id-ID'))}</p>${sub.text?`<p style="margin-top:8px"><strong>Jawaban teks:</strong><br>${escapeReviewText(sub.text)}</p>`:''}${sub.fileName?`<p style="margin-top:8px"><strong>File:</strong> ${escapeReviewText(sub.fileName)}</p>`:''}${sub.feedback?`<p style="margin-top:8px"><strong>Catatan guru:</strong> ${escapeReviewText(sub.feedback)}</p>`:''}</div>`:''}</div>
-          ${t.kind==='task'&&!sub?`<form class="glass-panel" style="padding:16px;margin-top:16px;border:2px solid var(--primary);background:var(--glass-bg,rgba(255,255,255,.04))" onsubmit="event.preventDefault();submitTaskFromDetail('${t.id}')"><h3 style="font-size:20px"><i class="fa-solid fa-cloud-arrow-up"></i> Kumpulkan Tugas</h3><p style="font-size:13px;color:var(--text-muted);margin:6px 0 14px">Isi kolom jawaban atau pilih file tugas. Kamu bisa memakai salah satu atau mengisi keduanya.</p>${expired?'<p class="badge badge-danger" style="display:inline-block;margin-bottom:12px">Deadline terlewat — pengumpulan akan ditandai terlambat.</p>':''}<label for="detail-submission-text" style="display:block;margin-bottom:6px;font-weight:600">Tulis / tempel jawaban</label><textarea id="detail-submission-text" rows="6" placeholder="Ketik atau tempel jawaban tugas di sini..." style="width:100%;box-sizing:border-box;margin:0 0 14px;padding:12px;border-radius:10px;resize:vertical"></textarea><label for="detail-submission-file" style="display:block;margin-bottom:6px;font-weight:600">Atau upload file tugas</label><input id="detail-submission-file" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" style="display:block;width:100%;box-sizing:border-box;margin:0 0 8px;padding:10px;border:1px dashed var(--glass-border);border-radius:10px"><small style="display:block;color:var(--text-muted);margin-bottom:14px">Format: PDF, DOC, DOCX, TXT, JPG, PNG. Ukuran maksimal 1,5 MB.</small><button type="submit" class="btn btn-success" style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:48px;font-size:16px;font-weight:700"><i class="fa-solid fa-paper-plane"></i> KUMPULKAN</button></form>`:t.kind==='task'&&sub?'<div class="glass-panel" style="padding:14px;margin-top:16px"><h3><i class="fa-solid fa-circle-check"></i> Tugas Sudah Dikumpulkan</h3><p>Jawabanmu sudah tercatat. Jika perlu memperbaiki kiriman, hubungi guru.</p></div>':''}
-          <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="closeTaskDetails()">Tutup</button>
-        </section>`;
-    }
-    function closeTaskDetails(){const m=document.getElementById('task-detail-modal');if(m)m.style.display='none';}
-    async function submitTaskFromDetail(taskId){
-        if(!currentStudent)return alert('Silakan masuk sebagai siswa terlebih dahulu.');
-        const text=document.getElementById('detail-submission-text')?.value.trim()||'';
-        const file=document.getElementById('detail-submission-file')?.files?.[0];
-        if(!text&&!file)return alert('Tempel jawaban atau pilih file tugas terlebih dahulu.');
-        if(file&&file.size>1500000)return alert('File maksimal 1,5 MB.');
-        const previous=taskSubmissions.find(x=>x.taskId===taskId&&String(x.student).toLowerCase()===String(currentStudent?.name||'').toLowerCase());
-        if(previous)return alert('Tugas ini sudah dikumpulkan.');
-        const save=(data='',name='')=>{const t=teacherTasks.find(x=>x.id===taskId);if(!t)return alert('Tugas tidak ditemukan.');taskSubmissions.push({id:'sub_'+Date.now(),taskId,taskTitle:t.title,subject:t.subject,student:currentStudent.name,studentName:currentStudent.name,submittedBy:currentStudent.name,submittedByAccount:currentStudent.name,submittedAt:Date.now(),submittedToTeacher:currentTeacher?.username||'',text,fileData:data,fileName:name,late:!!(t.deadline&&new Date(t.deadline).getTime()<Date.now()),grade:null,feedback:''});saveTaskCollections();renderStudentTasks();renderTeacherTasks();alert('Tugas berhasil dikumpulkan.');openTaskDetails(taskId);};
-        if(file){const r=new FileReader();r.onload=()=>save(String(r.result),file.name);r.onerror=()=>alert('File tidak bisa dibaca. Coba pilih file lain.');r.readAsDataURL(file)}else save();
-    }
-    async function submitTask(taskId){if(!currentStudent)return alert('Masuk sebagai siswa dahulu.');const task=teacherTasks.find(t=>t.id===taskId);if(!task)return;const text=document.getElementById('submission-text-'+taskId)?.value.trim()||'';const file=document.getElementById('submission-file-'+taskId)?.files?.[0];if(!text&&!file)return alert('Tulis jawaban atau pilih dokumen untuk dikumpulkan.');if(file&&file.size>1500000)return alert('Dokumen maksimal 1,5 MB.');const save=(data='',name='')=>{taskSubmissions=taskSubmissions.filter(x=>!(x.taskId===taskId&&String(x.student).toLowerCase()===String(currentStudent.name).toLowerCase()));taskSubmissions.push({id:'sub_'+Date.now(),taskId,taskTitle:task.title,subject:task.subject,student:currentStudent.name,studentName:currentStudent.name,submittedBy:currentStudent.name,submittedByAccount:currentStudent.name,submittedAt:Date.now(),submittedToTeacher:currentTeacher?.username||'',text,fileData:data,fileName:name,grade:null,feedback:''});saveTaskCollections();renderStudentTasks();renderTeacherTasks();alert('Tugas berhasil dikumpulkan.');};if(file){const r=new FileReader();r.onload=()=>save(String(r.result),file.name);r.readAsDataURL(file)}else save();}
-    function viewTaskSubmissions(taskId){const list=taskSubmissions.filter(s=>s.taskId===taskId);const box=document.getElementById('teacher-submissions-list');if(!list.length){if(box)box.innerHTML='<p>Belum ada pengumpulan untuk tugas ini.</p>';return alert('Belum ada pengumpulan untuk tugas ini.');}if(box){box.dataset.opened='1';box.innerHTML=list.map((s,i)=>`<article class="glass-panel" style="padding:14px;margin:10px 0"><strong>Nama siswa: ${escapeReviewText(s.studentName||s.submittedBy||s.student||'Nama tidak tercatat')}</strong><p>Akun pengumpul: ${escapeReviewText(s.submittedByAccount||s.student||'-')}</p><p>Waktu: ${escapeReviewText(new Date(s.submittedAt).toLocaleString('id-ID'))} ${s.late?' • TERLAMBAT':''}</p><p style="white-space:pre-wrap"><b>Jawaban:</b> ${escapeReviewText(s.text||'(tidak ada jawaban teks)')}</p><p><b>File:</b> ${escapeReviewText(s.fileName||'-')}</p>${s.fileData?`<button class="btn btn-secondary" onclick="downloadSubmission('${s.id}')">Unduh file</button>`:''}<p><b>Nilai:</b> ${s.grade??'Belum dinilai'} • <b>Guru pemeriksa:</b> ${escapeReviewText(currentTeacher?.displayName||currentTeacher?.username||'Guru')}</p><button class="btn btn-success" onclick="gradeSubmission('${s.id}')">Periksa & beri nilai</button></article>`).join('');}else alert(list.map(s=>(s.studentName||s.student)+' — '+(s.grade??'Belum dinilai')).join('\n'));}function downloadSubmission(id){const s=taskSubmissions.find(x=>x.id===id);if(!s?.fileData)return;const a=document.createElement('a');a.href=s.fileData;a.download=s.fileName||'pengumpulan';a.click();}function gradeSubmission(id){const sub=taskSubmissions.find(x=>x.id===id);if(!sub)return;const grade=prompt('Masukkan nilai 0–100 untuk '+(sub.studentName||sub.student),sub.grade??'');if(grade===null)return;const n=Number(grade);if(!Number.isFinite(n)||n<0||n>100)return alert('Nilai harus 0–100.');sub.grade=n;sub.feedback=prompt('Catatan guru (opsional):',sub.feedback||'')||'';sub.gradedBy=currentTeacher?.displayName||currentTeacher?.username||'Guru';sub.gradedByUsername=currentTeacher?.username||'guru';saveTaskCollections();renderTeacherTasks();viewTaskSubmissions(sub.taskId);alert('Nilai tersimpan atas pemeriksaan '+sub.gradedBy+'.');}
-    function editTeacherTask(id){
-      const item=[...teacherTasks,...teacherMaterials].find(t=>t.id===id);if(!item)return alert('Materi/tugas tidak ditemukan.');
-      switchTeacherTab(item.kind==='task'?'tab-tugas-harian':'tab-materi-guru',document.querySelector('.teacher-tabs .tab-btn[onclick*="'+(item.kind==='task'?'tab-tugas-harian':'tab-materi-guru')+'"]'));setTeacherContentMode(item.kind||'material');document.getElementById('task-subject').value=item.subjectId||'';if(document.getElementById('task-semester'))document.getElementById('task-semester').value=item.semester||'kelas10_s1';
-      document.getElementById('task-title').value=item.title||'';document.getElementById('task-teacher').value=item.teacher||'';document.getElementById('task-author').value=item.author||'';
-      document.getElementById('task-deadline').value=item.deadline||'';document.getElementById('task-description').value=item.description||'';document.getElementById('task-instructions').value=item.instructions||'';
-      const saveBtn=document.querySelector('#tab-tugas-harian button[onclick="saveTeacherTask()"]');if(saveBtn){saveBtn.dataset.editId=id;saveBtn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';}
-      if(item.fileName)alert('Formulir terisi. Untuk mempertahankan file lama, jangan pilih file baru. Jika ingin mengganti lampiran, pilih file baru sebelum menyimpan.');
-      document.getElementById('task-title').scrollIntoView({behavior:'smooth',block:'center'});
-    }
-    function deleteTeacherTask(id,kind){if(!confirm('Hapus tugas/materi ini?'))return; if(kind==='task')teacherTasks=teacherTasks.filter(t=>t.id!==id);else teacherMaterials=teacherMaterials.filter(t=>t.id!==id);saveTaskCollections();renderTeacherTasks();renderStudentTasks();if(typeof renderDedicatedMaterialList==='function')renderDedicatedMaterialList();if(typeof window.renderSavedMaterials==='function')window.renderSavedMaterials();}
-    function moveSubject(id,dir){const i=subjects.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=subjects.length)return;[subjects[i],subjects[j]]=[subjects[j],subjects[i]];subjects.forEach((s,n)=>s.position=n);saveSubjects();renderTeacherSubjectTable();renderStudentDashboard();}
-
-    function exportResultsImage(){
-      if(!results.length)return alert('Belum ada data nilai.');
-      const rows=[...results].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'}) || String(a.subject||'').localeCompare(String(b.subject||''),'id',{sensitivity:'base'}));
-      const canvas=document.createElement('canvas'),w=1400,rowH=54,top=230;canvas.width=w;canvas.height=top+rows.length*rowH+70;
-      const c=canvas.getContext('2d');c.fillStyle='#f8fafc';c.fillRect(0,0,w,canvas.height);c.fillStyle='#0f172a';c.fillRect(0,0,w,155);
-      c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);const logoImg=new Image();logoImg.onload=()=>{try{c.drawImage(logoImg,52,32,68,68)}catch(e){}};logoImg.src=CAMSTUDY_LOGO_DATA;c.fillStyle='#fff';c.font='bold 40px Arial';c.fillText('CAMSTUDY',160,58);c.font='bold 28px Arial';c.fillText('REKAP NILAI SISWA',160,100);c.font='17px Arial';c.fillText('Tanggal unduh: '+new Date().toLocaleString('id-ID'),160,133);
-      c.fillStyle='#1e293b';c.font='bold 19px Arial';const headers=['No','Nama Siswa','Mata Pelajaran','Nilai','Tanggal Pengerjaan','Jam'];const xs=[50,125,430,900,1010,1240];headers.forEach((h,i)=>c.fillText(h,xs[i],205));
-      rows.forEach((r,i)=>{const y=top+i*rowH;c.fillStyle=i%2?'#e2e8f0':'#fff';c.fillRect(35,y,w-70,rowH);c.fillStyle='#0f172a';c.font='18px Arial';const dt=r.timestamp?new Date(Number(r.timestamp)):null;[String(i+1),String(r.name||'').slice(0,26),String(r.subject||'').slice(0,28),String(r.score??''),r.date|| (dt?dt.toLocaleDateString('id-ID'):'-'),r.time||(dt?dt.toLocaleTimeString('id-ID'):'-')].forEach((v,j)=>c.fillText(v,xs[j],y+33));});
-      c.fillStyle='#64748b';c.font='15px Arial';c.fillText('Dokumen rekap resmi • CAMSTUDY',50,canvas.height-25);const a=document.createElement('a');a.download='Rekap Nilai.png';const saveImage=()=>{a.href=canvas.toDataURL('image/png');a.click();};const logo=new Image();logo.onload=()=>{try{c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);c.drawImage(logo,52,32,68,68)}catch(e){}saveImage();};logo.onerror=saveImage;logo.src=CAMSTUDY_LOGO_DATA;
-    }
-    async function resetResults() {
-      if(!confirm('Hapus seluruh rekap nilai dari perangkat ini dan server bersama? Akun siswa tetap dipertahankan.')) return;
-      results=[]; safeSetJSON('asts_res_v4',[]); saveResults(); refreshTeacherDashboard(false);
-      if(!ASTS_CLOUD.databaseURL||!ASTS_CLOUD.apiKey){alert('Rekap nilai pada perangkat ini sudah dihapus. Server tidak terhubung, jadi data pada perangkat lain mungkin masih ada.');return;}
-      try {
-        const token=sessionStorage.getItem('portal_teacher_token')||'';
-        const response=await fetch(normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/asts_kelas10/reset-results.json',{method:'POST',headers:{'Content-Type':'application/json','x-asts-key':ASTS_CLOUD.apiKey,'Authorization':'Bearer '+token},body:JSON.stringify({confirm:'RESET_ALL_RESULTS'}),cache:'no-store'});
-        const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
-        alert('Rekap nilai berhasil dihapus dari server. Akun siswa tetap ada.');
-      } catch(e) { alert('Rekap nilai lokal sudah dihapus, tetapi penghapusan server belum terkonfirmasi: '+(e.message||'periksa koneksi')); }
-    }
-
-    // Mark a student offline when the tab is actually closed; periodic heartbeat below handles active sessions.
-
     window.addEventListener('pageshow',function(){if(currentStudent){currentStudent.isOnline=true;currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();if(document.getElementById('screen-quiz')?.classList.contains('active'))currentStudent.readiness='Sedang mengerjakan';else if(!document.getElementById('screen-result')?.classList.contains('active'))currentStudent.readiness='Siap mengerjakan';saveUsers();}});
     window.addEventListener('pagehide', function () {
       try { if(currentStudent){currentStudent.isOnline=false;currentStudent.readiness='Offline';currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();safeSetJSON('asts_users_v4',studentAccounts);if(ASTS_CLOUD.databaseURL){const payload=JSON.stringify({data:studentAccounts,updatedAt:Date.now()});const url=normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/asts_kelas10/users.json';if(navigator.sendBeacon){navigator.sendBeacon(normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/api/presence/offline',new Blob([JSON.stringify({name:currentStudent.name})],{type:'application/json'}));}}} } catch(_){}
