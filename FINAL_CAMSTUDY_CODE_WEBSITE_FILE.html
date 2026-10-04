@@ -830,6 +830,8 @@
                 <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px;" onclick="refreshMonitorSiswa(true)">
                     <i class="fa-solid fa-rotate" id="monitor-refresh-icon"></i> Refresh
                 </button>
+                <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px;margin-left:6px" onclick="exportAttendanceCSV()" title="Unduh rekap absensi Excel/CSV"><i class="fa-solid fa-file-excel"></i> Rekap Absen (Excel/CSV)</button>
+                <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px;margin-left:6px" onclick="exportAttendanceImage()" title="Unduh rekap absensi sebagai gambar"><i class="fa-solid fa-image"></i> Rekap Absen (Gambar)</button>
                 <button class="btn btn-danger" style="padding:6px 12px;font-size:13px;margin-left:6px" onclick="resetAllStudentAccounts()" title="Hapus seluruh akun siswa"><i class="fa-solid fa-trash"></i> Reset Akun</button>
             </div>
             <div style="overflow-x: auto;">
@@ -1295,8 +1297,16 @@ let audioCtx = null;
     }
     function cloudPush(name,data){
         if(!ASTS_CLOUD.databaseURL)return;
-        cloudPendingPush[name]={data:JSON.parse(JSON.stringify(data)),updatedAt:Date.now()};
-        if(['subjects','tasks','materials'].includes(name)&&!sessionStorage.getItem('portal_teacher_token')){updateCloudStatus('Menunggu login guru untuk sinkronisasi data guru',false);return;}
+        const teacherLoggedIn=!!sessionStorage.getItem('portal_teacher_token');
+        if(['subjects','tasks','materials'].includes(name)&&!teacherLoggedIn){updateCloudStatus('Menunggu login guru untuk sinkronisasi data guru',false);return;}
+        let payloadData=data;
+        // Perangkat siswa hanya mengirim profil siswa aktif miliknya sendiri, bukan seluruh daftar akun lokal.
+        if(name==='users'&&!teacherLoggedIn){
+            const activeName=String(currentStudent?.name||sessionStorage.getItem('asts_active_student_name')||'').trim().toLowerCase();
+            payloadData=Array.isArray(data)?data.filter(u=>String(u?.name||'').trim().toLowerCase()===activeName):[];
+        }
+        // Data nilai/pengumpulan siswa boleh dikirim dari perangkat siswa, tetapi tidak perlu dibaca kembali oleh siswa lain.
+        cloudPendingPush[name]={data:JSON.parse(JSON.stringify(payloadData)),updatedAt:Date.now()};
         if(!cloudPushRunner) runCloudPushQueue();
     }
     async function runCloudPushQueue(){
@@ -1324,7 +1334,9 @@ let audioCtx = null;
     async function cloudPull(){
         if(!ASTS_CLOUD.databaseURL || cloudPullBusy)return; cloudPullBusy=true;
         try{
-            const [subjR,userR,resR,taskR,matR,submR]=await Promise.all([cloudRequest('subjects'),cloudRequest('users'),cloudRequest('results'),cloudRequest('tasks'),cloudRequest('materials'),cloudRequest('submissions')]);
+            const teacherLoggedIn=!!sessionStorage.getItem('portal_teacher_token');
+            const requests=[cloudRequest('subjects'),teacherLoggedIn?cloudRequest('users'):Promise.resolve(null),teacherLoggedIn?cloudRequest('results'):Promise.resolve(null),cloudRequest('tasks'),cloudRequest('materials'),teacherLoggedIn?cloudRequest('submissions'):Promise.resolve(null)];
+            const [subjR,userR,resR,taskR,matR,submR]=await Promise.all(requests);
             let changed=false;
             if(subjR&&Array.isArray(subjR.data)){
                 if(JSON.stringify(subjects)!==JSON.stringify(subjR.data))changed=true;
@@ -1589,7 +1601,7 @@ let audioCtx = null;
         if(user.pin!==undefined) delete user.pin;
         user.completedSubjects=Array.isArray(user.completedSubjects)?user.completedSubjects:[];
         user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0, Math.min(20,user.completedSubjects.length));
-        user.isOnline=true;user.avatar=user.avatar||selectedAvatar;user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();const attendanceDay=new Date().toLocaleDateString('en-CA');user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);user.attendanceDates=user.attendanceDates.slice(-180);
+        user.isOnline=true;user.avatar=selectedAvatar||user.avatar||'🦊';user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();const attendanceDay=new Date().toLocaleDateString('en-CA');user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);user.attendanceDates=user.attendanceDates.slice(-180);
         currentStudent=user;currentTeacher=null;currentStudent.lastSeen=Date.now();
         sessionStorage.setItem('asts_active_role','siswa');sessionStorage.setItem('asts_active_student_name',user.name);sessionStorage.removeItem('asts_active_teacher_username');saveUsers();
         // Push akun sekarang juga, bukan menunggu antrean/polling berikutnya. Tetap izinkan masuk jika server sedang bermasalah.
@@ -2137,7 +2149,7 @@ let audioCtx = null;
                 <td>
                     <div style="display:flex; align-items:center; gap:10px;">
                         <span style="font-size:22px;">${u.avatar || '🦊'}</span>
-                        <strong>${u.name}</strong>
+                        <strong>${escapeReviewText(u.name||'Siswa')}</strong>
                     </div>
                 </td>
                 <td>
@@ -2225,7 +2237,7 @@ let audioCtx = null;
             card.style.cssText = "background: rgba(255,255,255,0.03); border:1px solid var(--glass-border); padding:16px; border-radius:12px; margin-bottom:12px;";
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <strong>Soal ${i + 1}: ${q.q}</strong>
+                    <strong>Soal ${i + 1}: ${escapeReviewText(q.q||'')}</strong>
                     <div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="editQuestion('${subj.id}', ${i})">Edit</button><button class="btn btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteQuestion('${subj.id}', ${i})">Hapus</button></div>
                 </div>
                 <div style="margin-top:10px; font-size:13px; color:var(--text-muted);">
@@ -2272,7 +2284,7 @@ let audioCtx = null;
         box.innerHTML='<div class="ai-status">AI sedang membaca materi, menyusun pilihan jawaban, dan memeriksa kunci. Tunggu sebentar…</div>';
         try{
             const base=normalizeCloudUrl(ASTS_CLOUD.databaseURL);
-            const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),60000);let res;try{res=await fetch(base+'/api/generate-questions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(sessionStorage.getItem('portal_teacher_token')||''),'x-asts-key':ASTS_CLOUD.apiKey},cache:'no-store',signal:controller.signal,body:JSON.stringify({material,subject:((subjects.find(x=>x.id===subjectId)||{}).name)||'Umum',count})});}finally{clearTimeout(timeout);}
+            const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),45000);let res;try{res=await fetch(base+'/api/generate-questions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(sessionStorage.getItem('portal_teacher_token')||''),'x-asts-key':ASTS_CLOUD.apiKey},cache:'no-store',signal:controller.signal,body:JSON.stringify({material,subject:((subjects.find(x=>x.id===subjectId)||{}).name)||'Umum',count})});}finally{clearTimeout(timeout);}
             let data={};try{data=await res.json();}catch(_){}
             if(!res.ok)throw new Error(data.error||('Server AI merespons HTTP '+res.status));
             if(!Array.isArray(data.questions)||!data.questions.length)throw new Error('AI tidak mengembalikan soal yang dapat digunakan. Coba materi yang lebih jelas.');
@@ -2290,7 +2302,7 @@ let audioCtx = null;
             const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             box.innerHTML='<div class="ai-status"><strong>✓ '+generated.length+' soal berhasil dibuat dan ditambahkan ke '+escapeHTML(subj.name)+'.</strong><br><strong>Wajib:</strong> periksa kunci dan pembahasan tiap soal sebelum dibagikan. AI dapat keliru; cocokkan dengan materi sumber.</div><div style="margin-top:10px;max-height:360px;overflow:auto">'+generated.map((q,i)=>'<div style="padding:10px;margin-bottom:8px;border:1px solid var(--glass-border);border-radius:10px"><strong>'+(i+1)+'. '+escapeHTML(q.q)+'</strong><div><b>Tipe:</b> '+escapeHTML(q.type)+'</div>'+(q.options.length?'<ol type="A">'+q.options.map(o=>'<li>'+escapeHTML(o)+'</li>').join('')+'</ol>':'')+'<div><b>Kunci/rubrik:</b> '+escapeHTML(q.answerText||((Array.isArray(q.answer)?q.answer:[q.answer]).map(a=>letters[a]).join(', ')))+'<br><b>Pembahasan:</b> '+escapeHTML(q.exp||'')+'</div></div>').join('')+'</div>';
             document.getElementById('ai-material-input').value='';alert(generated.length+' soal berhasil dibuat dan ditambahkan ke '+subj.name+'.');
-        }catch(err){const msg=err&&err.name==='AbortError'?'Permintaan AI melewati 60 detik. Periksa Render Logs, OPENAI_API_KEY, dan kuota API lalu coba lagi.':(err.message||'Kesalahan tidak diketahui');box.innerHTML='<div class="ai-status" style="color:#fda4af">Gagal membuat soal: '+escapeHTML(msg)+'</div>';}
+        }catch(err){const msg=err&&err.name==='AbortError'?'Permintaan AI melewati 45 detik. Periksa OPENAI_API_KEY, model AI, kuota API, dan Render Logs lalu coba lagi.':(err.message||'Kesalahan tidak diketahui');box.innerHTML='<div class="ai-status" style="color:#fda4af">Gagal membuat soal: '+escapeHTML(msg)+'</div>';}
         finally{btn.disabled=false;btn.innerHTML=original;}
     }
     function aiPreviewQuestions(){showAIPreview(document.getElementById('ai-question-input').value,document.getElementById('ai-preview'));}
@@ -2355,7 +2367,22 @@ let audioCtx = null;
             alert('Harap isi pertanyaan dan semua pilihan jawaban!');
             return;
         }
-        const saveQ=(image)=>{const record={q,options:opts,answer:correct,exp,image};if(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id){getQuestionSet(subj,activeManageSemester,true)[editingQuestionIndex]=record;alert('Perubahan soal berhasil disimpan.');}else{getQuestionSet(subj,activeManageSemester,true).push(record);alert('Soal berhasil ditambahkan.');}editingQuestionIndex=null;editingQuestionSubjectId=null;saveSubjects();resetQuestionForm();closeModalAddQuestion();populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();switchTeacherTab('tab-bank-soal',document.querySelector('.teacher-tabs .tab-btn[onclick*="tab-bank-soal"]'));renderStudentDashboardIfVisible();};
+        const saveQ=(image)=>{
+            const qset=getQuestionSet(subj,activeManageSemester,true);
+            const existing=(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id)?qset[editingQuestionIndex]:null;
+            const record={...(existing||{}),q,options:opts,answer:correct,exp,image:image||'',type:existing?.type||'choice',updatedAt:Date.now()};
+            if(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id&&qset[editingQuestionIndex]){qset[editingQuestionIndex]=record;alert('Perubahan soal berhasil disimpan.');}
+            else{qset.push({...record,createdAt:Date.now()});alert('Soal berhasil ditambahkan.');}
+            editingQuestionIndex=null;editingQuestionSubjectId=null;
+            saveSubjects();
+            resetQuestionForm();
+            closeModalAddQuestion();
+            populateSubjectSelect(subj.id);
+            renderQuestionManager();
+            renderTeacherSubjectTable();
+            switchTeacherTab('tab-bank-soal',document.querySelector('.teacher-tabs .tab-btn[onclick*="tab-bank-soal"]'));
+            renderStudentDashboardIfVisible();
+        };
         if(imageFile){if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');const reader=new FileReader();reader.onload=()=>saveQ(String(reader.result));reader.readAsDataURL(imageFile);return;}
         const existing=(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id)?(getQuestionSet(subj,activeManageSemester)[editingQuestionIndex]?.image||''):'';
         saveQ(existing);
@@ -2536,7 +2563,17 @@ let audioCtx = null;
     }
 
     function exportAttendanceCSV(){const rows=[['No','Nama Siswa','Status Kehadiran','Status Pengerjaan','Total Pelanggaran','Terakhir Aktif','Tanggal Rekap']];studentAccounts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'})).forEach((u,i)=>rows.push([i+1,u.name||'',u.isOnline?'Hadir / Online':'Offline',u.readiness||'Offline',Number(u.totalViolations||u.violations||0),u.lastSeen?new Date(u.lastSeen).toLocaleString('id-ID'):'-',new Date().toLocaleDateString('id-ID')]));if(rows.length===1)return alert('Belum ada data akun siswa untuk direkap.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const blob=new Blob(['\ufeff'+rows.map(r=>r.map(q).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8;'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Rekap Absen.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-    function exportAttendanceImage(){if(!studentAccounts.length)return alert('Belum ada data akun siswa untuk direkap.');const rows=studentAccounts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'}));const w=1200,rh=48,top=190,c=document.createElement('canvas');c.width=w;c.height=top+rows.length*rh+60;const x=c.getContext('2d');x.fillStyle='#f8fafc';x.fillRect(0,0,w,c.height);x.fillStyle='#12345a';x.fillRect(0,0,w,135);const im=new Image();im.onload=()=>{try{x.drawImage(im,35,20,90,90)}catch(e){}};im.src=CAMSTUDY_LOGO_DATA;x.fillStyle='#fff';x.font='bold 36px Arial';x.fillText('CAMSTUDY',145,65);x.font='bold 25px Arial';x.fillText('REKAP KEHADIRAN SISWA',145,105);x.fillStyle='#0f172a';x.font='bold 17px Arial';['No','Nama Siswa','Kehadiran','Status','Pelanggaran','Terakhir Aktif'].forEach((v,i)=>x.fillText(v,[35,100,430,610,820,960][i],170));rows.forEach((u,i)=>{let y=top+i*rh;x.fillStyle=i%2?'#e2e8f0':'#fff';x.fillRect(25,y,w-50,rh);x.fillStyle='#0f172a';x.font='16px Arial';[String(i+1),String(u.name||'-').slice(0,28),u.isOnline?'Online':'Offline',String(u.readiness||'Offline'),String(Number(u.totalViolations||u.violations||0)),u.lastSeen?new Date(u.lastSeen).toLocaleString('id-ID'):'-'].forEach((v,j)=>x.fillText(v,[35,100,430,610,820,960][j],y+30));});const a=document.createElement('a');a.download='Rekap Absen.png';a.href=c.toDataURL('image/png');a.click();}
+    function exportAttendanceImage(){
+      if(!studentAccounts.length)return alert('Belum ada data akun siswa untuk direkap.');
+      const rows=studentAccounts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'}));
+      const w=1400,rh=56,top=250,c=document.createElement('canvas');c.width=w;c.height=top+rows.length*rh+80;const x=c.getContext('2d');
+      x.fillStyle='#f8fafc';x.fillRect(0,0,w,c.height);x.fillStyle='#0f172a';x.fillRect(0,0,w,170);x.fillStyle='#fff';x.fillRect(28,20,112,112);x.strokeStyle='#cbd5e1';x.strokeRect(28,20,112,112);
+      const logo=new Image();logo.onload=()=>{try{x.drawImage(logo,42,34,84,84)}catch(_){}};logo.src=CAMSTUDY_LOGO_DATA;
+      x.fillStyle='#fff';x.font='bold 40px Arial';x.fillText('CAMSTUDY',165,68);x.font='bold 29px Arial';x.fillText('REKAP KEHADIRAN SISWA',165,110);x.font='16px Arial';x.fillStyle='#cbd5e1';x.fillText('Dokumen rekap resmi • Tanggal unduh: '+new Date().toLocaleString('id-ID'),165,142);
+      x.fillStyle='#e2e8f0';x.fillRect(35,205,w-70,45);x.fillStyle='#334155';x.font='bold 18px Arial';['No','Nama Siswa','Hari Hadir','Status','Pelanggaran','Terakhir Aktif'].forEach((v,i)=>x.fillText(v,[55,130,520,720,900,1080][i],234));
+      rows.forEach((u,i)=>{const y=top+i*rh;x.fillStyle=i%2?'#eef2f7':'#fff';x.fillRect(35,y,w-70,rh);x.strokeStyle='#e2e8f0';x.strokeRect(35,y,w-70,rh);x.fillStyle='#0f172a';x.font='17px Arial';const vals=[String(i+1),String(u.name||'-').slice(0,34),String(Array.isArray(u.attendanceDates)?u.attendanceDates.length:0)+' hari',u.isOnline?'Online':'Offline',String(Number(u.totalViolations||u.violations||0)),u.lastSeen?new Date(u.lastSeen).toLocaleString('id-ID'):'-'];vals.forEach((v,j)=>x.fillText(v,[55,130,520,720,900,1080][j],y+35));});
+      x.fillStyle='#64748b';x.font='14px Arial';x.fillText('CAMSTUDY • Rekap absensi siswa',45,c.height-28);const a=document.createElement('a');a.download='Rekap Absen CAMSTUDY.png';const save=()=>{a.href=c.toDataURL('image/png');a.click();};const logo2=new Image();logo2.onload=()=>{try{x.drawImage(logo2,42,34,84,84)}catch(_){ }save();};logo2.onerror=save;logo2.src=CAMSTUDY_LOGO_DATA;
+    }
 
     function exportCSV() {
         if (!results.length) return alert('Belum ada data nilai.');
@@ -2658,12 +2695,21 @@ let audioCtx = null;
     function exportResultsImage(){
       if(!results.length)return alert('Belum ada data nilai.');
       const rows=[...results].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'}) || String(a.subject||'').localeCompare(String(b.subject||''),'id',{sensitivity:'base'}));
-      const canvas=document.createElement('canvas'),w=1400,rowH=54,top=230;canvas.width=w;canvas.height=top+rows.length*rowH+70;
-      const c=canvas.getContext('2d');c.fillStyle='#f8fafc';c.fillRect(0,0,w,canvas.height);c.fillStyle='#0f172a';c.fillRect(0,0,w,155);
-      c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);const logoImg=new Image();logoImg.onload=()=>{try{c.drawImage(logoImg,52,32,68,68)}catch(e){}};logoImg.src=CAMSTUDY_LOGO_DATA;c.fillStyle='#fff';c.font='bold 40px Arial';c.fillText('CAMSTUDY',160,58);c.font='bold 28px Arial';c.fillText('REKAP NILAI SISWA',160,100);c.font='17px Arial';c.fillText('Tanggal unduh: '+new Date().toLocaleString('id-ID'),160,133);
-      c.fillStyle='#1e293b';c.font='bold 19px Arial';const headers=['No','Nama Siswa','Mata Pelajaran','Nilai','Tanggal Pengerjaan','Jam'];const xs=[50,125,430,900,1010,1240];headers.forEach((h,i)=>c.fillText(h,xs[i],205));
-      rows.forEach((r,i)=>{const y=top+i*rowH;c.fillStyle=i%2?'#e2e8f0':'#fff';c.fillRect(35,y,w-70,rowH);c.fillStyle='#0f172a';c.font='18px Arial';const dt=r.timestamp?new Date(Number(r.timestamp)):null;[String(i+1),String(r.name||'').slice(0,26),String(r.subject||'').slice(0,28),String(r.score??''),r.date|| (dt?dt.toLocaleDateString('id-ID'):'-'),r.time||(dt?dt.toLocaleTimeString('id-ID'):'-')].forEach((v,j)=>c.fillText(v,xs[j],y+33));});
-      c.fillStyle='#64748b';c.font='15px Arial';c.fillText('Dokumen rekap resmi • CAMSTUDY',50,canvas.height-25);const a=document.createElement('a');a.download='Rekap Nilai.png';const saveImage=()=>{a.href=canvas.toDataURL('image/png');a.click();};const logo=new Image();logo.onload=()=>{try{c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);c.drawImage(logo,52,32,68,68)}catch(e){}saveImage();};logo.onerror=saveImage;logo.src=CAMSTUDY_LOGO_DATA;
+      const canvas=document.createElement('canvas'),w=1500,rowH=56,top=250;canvas.width=w;canvas.height=top+rows.length*rowH+80;
+      const c=canvas.getContext('2d');
+      c.fillStyle='#f8fafc';c.fillRect(0,0,w,canvas.height);
+      c.fillStyle='#0f172a';c.fillRect(0,0,w,170);
+      c.fillStyle='#ffffff';c.fillRect(28,20,112,112);c.strokeStyle='#cbd5e1';c.lineWidth=2;c.strokeRect(28,20,112,112);
+      const drawHeader=()=>{try{const logo=new Image();logo.onload=()=>{try{c.drawImage(logo,42,34,84,84)}catch(_){}};logo.src=CAMSTUDY_LOGO_DATA;}catch(_){}};drawHeader();
+      c.fillStyle='#fff';c.font='bold 40px Arial';c.fillText('CAMSTUDY',165,68);
+      c.font='bold 29px Arial';c.fillText('REKAP NILAI SISWA',165,110);
+      c.font='16px Arial';c.fillStyle='#cbd5e1';c.fillText('Dokumen rekap resmi • Tanggal unduh: '+new Date().toLocaleString('id-ID'),165,142);
+      c.fillStyle='#e2e8f0';c.fillRect(35,205,w-70,45);
+      c.fillStyle='#334155';c.font='bold 18px Arial';
+      const headers=['No','Nama Siswa','Mata Pelajaran','Nilai','Tanggal Pengerjaan','Jam'];const xs=[55,130,455,960,1070,1320];headers.forEach((h,i)=>c.fillText(h,xs[i],234));
+      rows.forEach((r,i)=>{const y=top+i*rowH;c.fillStyle=i%2?'#eef2f7':'#ffffff';c.fillRect(35,y,w-70,rowH);c.strokeStyle='#e2e8f0';c.lineWidth=1;c.strokeRect(35,y,w-70,rowH);c.fillStyle=Number(r.score)<76?'#b91c1c':Number(r.score)===76?'#92400e':'#166534';c.font='bold 18px Arial';c.fillText(String(r.score??'-'),960,y+35);c.fillStyle='#0f172a';c.font='17px Arial';const dt=r.timestamp?new Date(Number(r.timestamp)):null;[String(i+1),String(r.name||'').slice(0,28),String(r.subject||'').slice(0,34),r.date|| (dt?dt.toLocaleDateString('id-ID'):'-'),r.time||(dt?dt.toLocaleTimeString('id-ID'):'-')].forEach((v,j)=>{const x=[55,130,455,1070,1320][j];c.fillText(v,x,y+35);});});
+      c.fillStyle='#64748b';c.font='14px Arial';c.fillText('CAMSTUDY • Rekap nilai siswa',45,canvas.height-28);
+      const a=document.createElement('a');a.download='Rekap Nilai CAMSTUDY.png';const saveImage=()=>{a.href=canvas.toDataURL('image/png');a.click();};const logo2=new Image();logo2.onload=()=>{try{c.drawImage(logo2,42,34,84,84)}catch(_){ }saveImage();};logo2.onerror=saveImage;logo2.src=CAMSTUDY_LOGO_DATA;
     }
     async function resetResults() {
       if(!confirm('Hapus seluruh rekap nilai dari perangkat ini dan server bersama? Akun siswa tetap dipertahankan.')) return;

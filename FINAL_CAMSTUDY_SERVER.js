@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT || 3000);
 const TEACHER_PASSWORD = String(process.env.TEACHER_PASSWORD || 'ADMIN123');
 const teacherSessions = new Map();
 const loginAttempts = new Map();
+const aiAttempts = new Map();
 const DATA_DIR = path.resolve(process.env.DATA_DIR || __dirname);
 const DB_FILE = path.join(DATA_DIR, 'asts-data.json');
 const ALLOWED = new Set(['ping', 'subjects', 'users', 'results', 'tasks', 'materials', 'submissions']);
@@ -31,8 +32,9 @@ function auth(req, res, next) {
   if (session && session.expiresAt > Date.now()) { req.teacherSession = session; return next(); }
   const name = String((req.params && req.params.name) || '');
   const teacherOnly = req.method !== 'GET' && ['subjects','tasks','materials'].includes(name);
+  const privateRead = req.method === 'GET' && ['users','results','submissions'].includes(name);
   const protectedEndpoint = req.path.startsWith('/api/generate-questions') || req.path.includes('/reset-');
-  if ((teacherOnly || protectedEndpoint) && !session) return sendError(res, 403, 'Perlu login guru/admin.');
+  if ((teacherOnly || privateRead || protectedEndpoint) && !session) return sendError(res, 403, 'Perlu login guru/admin.');
   // Data akun, status, nilai, dan pengumpulan boleh disinkronkan oleh siswa tanpa kunci rahasia di browser.
   if (req.method === 'PUT' && !['ping','users','results','submissions'].includes(name) && !session) return sendError(res, 403, 'Perlu login guru/admin.');
   next();
@@ -196,7 +198,15 @@ app.put('/asts_kelas10/:name.json', auth, async (req, res) => {
     return sendError(res, 500, 'Data belum berhasil disimpan. Periksa persistent disk hosting.');
   }
 });
+function allowAiRequest(req) {
+  const key=String(req.ip||req.socket.remoteAddress||'unknown');
+  const now=Date.now(); const windowMs=10*60*1000; const max=8;
+  const prev=aiAttempts.get(key)||[]; const recent=prev.filter(t=>now-t<windowMs);
+  if(recent.length>=max){aiAttempts.set(key,recent);return false;}
+  recent.push(now);aiAttempts.set(key,recent);return true;
+}
 app.post('/api/generate-questions', auth, async (req, res) => {
+  if (!allowAiRequest(req)) return sendError(res, 429, 'Terlalu banyak permintaan AI. Tunggu beberapa menit lalu coba lagi.');
   const apiKey = String(process.env.OPENAI_API_KEY || '');
   if (!apiKey) return sendError(res, 503, 'AI belum dikonfigurasi. Admin perlu mengatur OPENAI_API_KEY pada Environment hosting.');
   const material = String(req.body && req.body.material || '').trim();
@@ -206,7 +216,7 @@ app.post('/api/generate-questions', auth, async (req, res) => {
   if (material.length > 30000) return sendError(res, 413, 'Materi terlalu panjang. Batas materi adalah 30.000 karakter.');
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(55000),
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -214,7 +224,8 @@ app.post('/api/generate-questions', auth, async (req, res) => {
         instructions: 'Anda membantu guru SMA/SMK Indonesia membuat soal hanya dari MATERI SUMBER. KETEPATAN KUNCI ADALAH PRIORITAS UTAMA. Untuk setiap soal pilihan: (1) tentukan jawaban benar berdasarkan materi terlebih dahulu, (2) susun empat opsi dengan tepat satu jawaban benar untuk tipe choice, (3) setelah urutan opsi final ditentukan, hitung ulang answer sebagai indeks 0-based dari opsi final: 0=opsi pertama/A, 1=opsi kedua/B, 2=opsi ketiga/C, 3=opsi keempat/D, (4) cek ulang bahwa opsi pada indeks answer benar-benar menjawab pertanyaan dan cocok dengan exp. Jangan pernah menulis huruf jawaban di answer; gunakan angka indeks. Pastikan exp menerangkan mengapa jawaban itu benar dan tidak bertentangan dengan opsi lain. Hindari pertanyaan ambigu, opsi yang sama-sama benar, dan fakta yang tidak ada di materi. Jika materi tidak cukup untuk membuat soal yang valid, jangan mengarang. Variasikan tipe: choice, multiple, essay. Untuk multiple, answer berupa array indeks benar dan minimal 2; semua jawaban yang dipilih harus benar. Untuk essay, answerText berisi kunci lengkap, rubric berisi konsep wajib/sinonim, options=[] dan answer=null. Kembalikan JSON valid {"questions":[{"type":"choice|multiple|essay","q":"...","options":[],"answer":null,"answerText":"...","rubric":"...","exp":"..."}]}. Buat soal kelas 10 yang jelas, tidak duplikat, dan tidak melebihi jumlah diminta. Sebelum mengirim, audit sekali lagi semua kunci dan pembahasan. Jangan sertakan markdown.',
         input: 'Mata pelajaran: ' + subject + '\nJumlah soal: ' + count + '\n\nMATERI SUMBER:\n' + material,
         text: { format: { type: 'json_object' } },
-        max_output_tokens: Math.min(8000, 700 + count * 300)
+        max_output_tokens: Math.min(16000, 900 + count * 340),
+        store: false
       })
     });
     const data = await response.json();
@@ -223,7 +234,7 @@ app.post('/api/generate-questions', auth, async (req, res) => {
       console.error('OpenAI API error:', response.status, msg);
       return sendError(res, response.status === 429 ? 429 : 502, response.status === 429 ? 'Batas penggunaan AI tercapai. Coba lagi nanti.' : 'Layanan AI gagal memproses materi. Periksa konfigurasi API key/model.');
     }
-    const output = (data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('\n');
+    const output = String(data.output_text || ((data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('\n')) || '').trim();
     let parsed;
     try { parsed = JSON.parse(output); } catch (_) { return sendError(res, 502, 'Jawaban AI tidak terbaca sebagai JSON. Silakan coba lagi.'); }
     if (!parsed || !Array.isArray(parsed.questions)) return sendError(res, 502, 'AI tidak mengembalikan daftar soal.');
