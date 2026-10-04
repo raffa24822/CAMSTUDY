@@ -705,7 +705,9 @@
         </div>
         <button class="btn" style="max-width: 320px; margin: 24px auto 0;" onclick="returnToStudentDashboard()">
             <i class="fa-solid fa-house"></i> Kembali ke Dashboard
-        </button> <button class="btn btn-secondary" style="max-width:320px;margin:24px auto 0" onclick="shareResultCard()"><i class="fa-solid fa-share-nodes"></i> Bagikan Hasil</button>
+        </button>
+        <button class="btn btn-secondary" style="max-width:320px;margin:24px auto 0" onclick="shareResultCard()"><i class="fa-solid fa-share-nodes"></i> Bagikan Hasil</button>
+        <button class="btn btn-secondary" style="max-width:320px;margin:12px auto 0" onclick="downloadResultCard()"><i class="fa-solid fa-download"></i> Download Hasil sebagai Gambar</button>
     </div>
     
     <div id="screen-dashboard-guru" class="screen dashboard-screen">
@@ -855,7 +857,7 @@
             <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <label style="font-weight: 700; font-size: 14px; margin: 0;">Pilih Mapel:</label>
                 <select id="select-subject-manage" style="max-width: 300px; margin: 0;" onchange="renderQuestionManager()"></select><select id="manage-semester" style="max-width:280px;margin:0" onchange="activeManageSemester=this.value;renderQuestionManager()"><option value="kelas10_s1">Kelas 10 • Semester 1</option><option value="kelas10_s2">Kelas 10 • Semester 2</option><option value="kelas11_s1">Kelas 11 • Semester 1</option><option value="kelas11_s2">Kelas 11 • Semester 2</option><option value="kelas12_s1">Kelas 12 • Semester 1</option><option value="kelas12_s2">Kelas 12 • Semester 2</option></select>
-                <button class="btn" style="margin-left: auto;" onclick="openModalAddQuestion()">
+                <button type="button" id="btn-add-question-bank" class="btn" style="margin-left: auto;">
                     <i class="fa-solid fa-plus"></i> Tambah Soal
                 </button>
             </div>
@@ -1021,8 +1023,8 @@
         <label style="font-size: 13px; font-weight: 700;">Pembahasan</label>
         <textarea id="q-exp" rows="2" placeholder="Penjelasan kunci jawaban..."></textarea>
         <div style="display: flex; gap: 10px; margin-top: 10px;">
-            <button class="btn btn-secondary" style="flex: 1;" onclick="closeModalAddQuestion()">Batal</button>
-            <button class="btn" style="flex: 1;" onclick="saveQuestion()">Simpan Soal</button>
+            <button type="button" id="btn-cancel-question" class="btn btn-secondary" style="flex: 1;">Batal</button>
+            <button type="button" id="btn-save-question" class="btn" style="flex: 1;">Simpan Soal</button>
         </div>
     </div>
 </div>
@@ -1639,7 +1641,9 @@ let audioCtx = null;
                 <div class="medal-levelup-kicker">QUIZ SELESAI • HADIAH UNTUKMU</div>
                 <h2 id="medal-levelup-title">MEDALI BERHASIL DIDAPATKAN!</h2>
                 <p id="medal-levelup-desc"></p>
-                <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="shareMedalCard()"><i class="fa-solid fa-share-nodes"></i> Bagikan Medali</button><button class="btn btn-success" style="width:100%;margin-top:10px" onclick="document.getElementById('medal-levelup-modal').classList.remove('active')">Ambil Medali & Lanjutkan</button>
+                <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="shareMedalCard()"><i class="fa-solid fa-share-nodes"></i> Bagikan Medali</button>
+                <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="downloadMedalCard()"><i class="fa-solid fa-download"></i> Download Medali sebagai Gambar</button>
+                <button class="btn btn-success" style="width:100%;margin-top:10px" onclick="document.getElementById('medal-levelup-modal').classList.remove('active')">Ambil Medali & Lanjutkan</button>
             </div>`;
             document.body.appendChild(modal);
         }
@@ -2026,67 +2030,87 @@ let audioCtx = null;
             ${kosong ? `<span class="badge badge-warning">⚪ ${kosong} Kosong</span>` : ''}
         `;
     }
-    async function shareResultCard(){
-      try{
-        const name=String(currentStudent?.name||document.getElementById('result-student-name')?.textContent||'Siswa');
-        const score=Number(document.getElementById('result-score')?.textContent||0);
-        const rankInfo=getRankInfo(Array.isArray(currentStudent?.completedSubjects) ? currentStudent.completedSubjects.length : 0);
-        const grade=score>=95?'A+':score>=85?'A':score>=75?'B':score>=65?'C':score>=50?'D':'F';
-        const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const ctx=canvas.getContext('2d');
-        const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#d9f2ff');grad.addColorStop(1,'#8acfff');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);
-        ctx.fillStyle='#164e83';ctx.font='bold 58px Arial';ctx.textAlign='center';ctx.fillText('CAMSTUDY',540,135);
-        ctx.font='34px Arial';ctx.fillText('KARTU HASIL BELAJAR',540,195);
-        ctx.fillStyle='#ffffff';roundRect(ctx,90,255,900,820,42);ctx.fill();ctx.strokeStyle='#164e83';ctx.lineWidth=5;ctx.stroke();
-        ctx.fillStyle='#164e83';ctx.font='bold 42px Arial';ctx.fillText(name.slice(0,35),540,365);
-        ctx.font='30px Arial';ctx.fillStyle='#334155';ctx.fillText(String(document.getElementById('result-subject-title')?.textContent||'Hasil belajar').replace(/^Hasil Belajar:\s*/i,''),540,425);
-        ctx.fillStyle='#164e83';ctx.font='bold 150px Arial';ctx.fillText(String(score),540,635);
-        ctx.font='bold 48px Arial';ctx.fillText('NILAI',540,700);
-        ctx.font='bold 66px Arial';ctx.fillText('Peringkat '+grade,540,825);
-        ctx.font='38px Arial';ctx.fillText((rankInfo.icon||'🏅')+' '+(rankInfo.title||'Pelajar'),540,900);
-        ctx.font='30px Arial';ctx.fillStyle='#334155';ctx.fillText(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}),540,990);
-        ctx.fillStyle='#164e83';ctx.font='bold 28px Arial';ctx.fillText('Terus belajar, berkembang, dan raih cita-cita!',540,1170);
-        ctx.font='24px Arial';ctx.fillText('CamStudy • Belajar, berkembang, berprestasi',540,1230);
-        const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('Gambar hasil tidak dapat dibuat.');
-        const file=new File([blob],'hasil-camstudy.png',{type:'image/png'});
-        if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Hasil Belajar CamStudy',text:'Ini hasil belajarku di CamStudy!'});}
-        else{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='hasil-camstudy.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);alert('Kartu hasil diunduh sebagai gambar. Kamu bisa membagikannya lewat WhatsApp, Facebook, atau Instagram.');}
-      }catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan kartu hasil: '+(e.message||'coba lagi'));}
+    function camstudyDownloadBlob(blob, filename){
+      if(!blob) throw new Error('Gambar tidak dapat dibuat.');
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');
+      a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);return true;
     }
-    async function createMedalCardBlob(){
-      const info=getRankInfo(Array.isArray(currentStudent?.completedSubjects)?currentStudent.completedSubjects.length:0);
-      const name=String(currentStudent?.name||'Siswa');
+    async function camstudyShareImage(blob, filename, title, textMessage, fallbackType){
+      if(!blob) throw new Error('Gambar tidak dapat dibuat.');
+      const file=new File([blob],filename,{type:'image/png'});
+      if(navigator.share){
+        try{
+          if(!navigator.canShare || navigator.canShare({files:[file]})){
+            await navigator.share({files:[file],title:title,text:textMessage});return 'shared';
+          }
+        }catch(e){if(e?.name==='AbortError')return 'cancelled';}
+      }
+      camstudyDownloadBlob(blob,filename);
+      const encoded=encodeURIComponent(textMessage);
+      if(fallbackType==='result'){
+        const modal=document.getElementById('camstudy-result-share-options')||document.createElement('div');
+        modal.id='camstudy-result-share-options';modal.className='modal-overlay';modal.style.zIndex='100002';
+        modal.innerHTML=`<div class="modal-body" style="max-width:520px"><h3>Bagikan Hasil Quiz</h3><p style="color:var(--text-muted);line-height:1.6">Gambar hasil sudah di-download. Pilih aplikasi untuk membagikan. Untuk WhatsApp/Facebook, lampirkan gambar yang baru disimpan.</p><div style="display:grid;gap:9px"><a class="btn btn-success" href="https://wa.me/?text=${encoded}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a><a class="btn btn-primary" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(location.href)}" target="_blank" rel="noopener"><i class="fa-brands fa-facebook"></i> Facebook</a><button class="btn btn-primary" onclick="navigator.clipboard?.writeText(${JSON.stringify(textMessage)});alert('Teks berhasil disalin. Lampirkan gambar hasil yang sudah di-download.');"><i class="fa-solid fa-copy"></i> Salin Teks</button><button class="btn btn-secondary" onclick="document.getElementById('camstudy-result-share-options').classList.remove('active')">Tutup</button></div></div>`;
+        if(!modal.parentNode)document.body.appendChild(modal);modal.classList.add('active');
+      }else{
+        const modal=document.getElementById('medal-share-options')||document.createElement('div');
+        modal.id='medal-share-options';modal.className='modal-overlay';modal.style.zIndex='100002';
+        modal.innerHTML=`<div class="modal-body" style="max-width:520px"><h3>Bagikan Penghargaan</h3><p style="color:var(--text-muted);line-height:1.6">Gambar medali sudah di-download. Pilih aplikasi untuk membagikan. Untuk WhatsApp/Facebook, lampirkan gambar yang baru disimpan.</p><div style="display:grid;gap:9px"><a class="btn btn-success" href="https://wa.me/?text=${encoded}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a><a class="btn btn-primary" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(location.href)}" target="_blank" rel="noopener"><i class="fa-brands fa-facebook"></i> Facebook</a><button class="btn btn-primary" onclick="navigator.clipboard?.writeText(${JSON.stringify(textMessage)});alert('Teks berhasil disalin. Lampirkan gambar penghargaan yang sudah di-download.');"><i class="fa-solid fa-copy"></i> Salin Teks</button><button class="btn btn-secondary" onclick="document.getElementById('medal-share-options').classList.remove('active')">Tutup</button></div></div>`;
+        if(!modal.parentNode)document.body.appendChild(modal);modal.classList.add('active');
+      }
+      return 'downloaded';
+    }
+    function returnToStudentDashboard(){
+      try{
+        const medalModal=document.getElementById('medal-levelup-modal');if(medalModal)medalModal.classList.remove('active');
+        const shareModal=document.getElementById('medal-share-options');if(shareModal)shareModal.classList.remove('active');
+        const resultShare=document.getElementById('camstudy-result-share-options');if(resultShare)resultShare.classList.remove('active');
+        clearInterval(timerInterval);isQuizActive=false;currentQIndex=0;examQuestions=[];examAnswers=[];
+        if(currentStudent){currentStudent.readiness='Siap mengerjakan';currentStudent.isOnline=true;currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();saveUsers();}
+        updateStudentProfileUI();renderStudentDashboard();showScreen('screen-dashboard-siswa');
+        return false;
+      }catch(e){console.error(e);alert('Gagal kembali ke Dashboard. Silakan coba lagi.');return false;}
+    }
+    async function buildResultCardBlob(){
+      const name=String(currentStudent?.name||document.getElementById('result-student-name')?.textContent||'Siswa');
+      const score=Number(document.getElementById('result-score')?.textContent||0);
+      const rankInfo=getRankInfo(Array.isArray(currentStudent?.completedSubjects) ? currentStudent.completedSubjects.length : 0);
+      const grade=score>=95?'A+':score>=85?'A':score>=75?'B':score>=65?'C':score>=50?'D':'F';
       const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const ctx=canvas.getContext('2d');
-      const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#f8fafc');grad.addColorStop(1,'#dbeafe');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);
-      ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 58px Arial';ctx.fillText('CAMSTUDY',540,120);ctx.font='bold 34px Arial';ctx.fillText('SERTIFIKAT PENGHARGAAN',540,180);
-      ctx.fillStyle='#fff';roundRect(ctx,80,230,920,900,42);ctx.fill();ctx.strokeStyle='#334155';ctx.lineWidth=5;ctx.stroke();
-      const shape=['medal-circle','medal-shield','medal-hex','medal-diamond','medal-star','medal-ribbon'][Math.max(1,Number(info.level)||1)%6];
-      ctx.save();ctx.translate(540,475);ctx.fillStyle='#e2e8f0';ctx.strokeStyle='#334155';ctx.lineWidth=10;ctx.beginPath();
-      if(shape==='medal-star'){for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,r=i%2?92:125;const x=Math.cos(a)*r,y=Math.sin(a)*r;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();}
-      else if(shape==='medal-hex'){for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3,x=Math.cos(a)*125,y=Math.sin(a)*125;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();}
-      else if(shape==='medal-diamond'){ctx.moveTo(0,-130);ctx.lineTo(130,0);ctx.lineTo(0,130);ctx.lineTo(-130,0);ctx.closePath();}
-      else if(shape==='medal-shield'){ctx.moveTo(0,-130);ctx.lineTo(110,-85);ctx.lineTo(95,65);ctx.lineTo(0,130);ctx.lineTo(-95,65);ctx.lineTo(-110,-85);ctx.closePath();}
-      else {ctx.arc(0,0,125,0,Math.PI*2);}
-      ctx.fill();ctx.stroke();ctx.restore();
-      ctx.fillStyle='#0f172a';ctx.font='bold 72px Arial';ctx.fillText(info.icon||'🏅',540,500);
-      ctx.font='bold 48px Arial';ctx.fillText(name.slice(0,32),540,700);ctx.font='bold 40px Arial';ctx.fillText(info.title||'Pelajar Aktif',540,775);ctx.font='30px Arial';ctx.fillStyle='#475569';ctx.fillText(info.medal||'Penghargaan CAMSTUDY',540,830);ctx.fillText(`LEVEL ${info.level||0} • ${info.subjects||0} MAPEL SELESAI`,540,890);
-      ctx.font='26px Arial';ctx.fillText(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}),540,960);ctx.fillStyle='#164e83';ctx.font='bold 28px Arial';ctx.fillText('CAMSTUDY • Belajar, berkembang, berprestasi.',540,1040);
+      const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#d9f2ff');grad.addColorStop(1,'#8acfff');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);
+      ctx.fillStyle='#164e83';ctx.font='bold 58px Arial';ctx.textAlign='center';ctx.fillText('CAMSTUDY',540,135);ctx.font='34px Arial';ctx.fillText('KARTU HASIL BELAJAR',540,195);
+      ctx.fillStyle='#ffffff';roundRect(ctx,90,255,900,820,42);ctx.fill();ctx.strokeStyle='#164e83';ctx.lineWidth=5;ctx.stroke();
+      ctx.fillStyle='#164e83';ctx.font='bold 42px Arial';ctx.fillText(name.slice(0,35),540,365);ctx.font='30px Arial';ctx.fillStyle='#334155';ctx.fillText(String(document.getElementById('result-subject-title')?.textContent||'Hasil belajar').replace(/^Hasil Belajar:\s*/i,''),540,425);
+      ctx.fillStyle='#164e83';ctx.font='bold 150px Arial';ctx.fillText(String(score),540,635);ctx.font='bold 48px Arial';ctx.fillText('NILAI',540,700);ctx.font='bold 66px Arial';ctx.fillText('Peringkat '+grade,540,825);ctx.font='38px Arial';ctx.fillText((rankInfo.icon||'🏅')+' '+(rankInfo.title||'Pelajar'),540,900);
+      ctx.font='30px Arial';ctx.fillStyle='#334155';ctx.fillText(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}),540,990);ctx.fillStyle='#164e83';ctx.font='bold 28px Arial';ctx.fillText('Terus belajar, berkembang, dan raih cita-cita!',540,1170);ctx.font='24px Arial';ctx.fillText('CamStudy • Belajar, berkembang, berprestasi',540,1230);
       return await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
     }
-    async function downloadMedalCard(){
-      try{const blob=await createMedalCardBlob();if(!blob)throw new Error('Gambar tidak dapat dibuat.');const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Penghargaan-Medali-CAMSTUDY.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}catch(e){alert('Gagal menyimpan gambar penghargaan: '+(e.message||'coba lagi'));}}
-    async function shareMedalCard(){
+    async function downloadResultCard(){
+      try{const blob=await buildResultCardBlob();camstudyDownloadBlob(blob,'Hasil-Quiz-CAMSTUDY.png');alert('Hasil quiz berhasil disimpan sebagai gambar.');}catch(e){alert('Gagal menyimpan gambar hasil quiz: '+(e.message||'coba lagi'));}
+    }
+    async function shareResultCard(){
       try{
-        const blob=await createMedalCardBlob();if(!blob)throw new Error('Gambar tidak dapat dibuat.');
-        const file=new File([blob],'Penghargaan-Medali-CAMSTUDY.png',{type:'image/png'});
-        if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Penghargaan CAMSTUDY',text:'Saya mendapatkan penghargaan di CAMSTUDY!'});return;}
-        await downloadMedalCard();
-        const text=encodeURIComponent('Saya mendapatkan penghargaan di CAMSTUDY!');
-        const wa='https://wa.me/?text='+text;
-        const fb='https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(location.href);
-        const modal=document.getElementById('medal-share-options')||document.createElement('div');
-        modal.id='medal-share-options';modal.className='modal-overlay';modal.style.zIndex='100002';modal.innerHTML=`<div class="modal-body" style="max-width:520px"><h3>Bagikan Penghargaan</h3><p style="color:var(--text-muted)">Gambar sudah disimpan. Pilih tujuan berikut untuk melanjutkan.</p><div style="display:grid;gap:9px"><a class="btn btn-success" href="${wa}" target="_blank" rel="noopener">WhatsApp</a><a class="btn btn-primary" href="${fb}" target="_blank" rel="noopener">Facebook</a><button class="btn btn-primary" onclick="navigator.clipboard?.writeText('Saya mendapatkan penghargaan di CAMSTUDY!');alert('Teks berhasil disalin. Lampirkan gambar CAMSTUDY yang sudah disimpan.');">Salin Teks</button><button class="btn btn-secondary" onclick="downloadMedalCard()">Simpan ke Galeri / Download Lagi</button><button class="btn btn-secondary" onclick="document.getElementById('medal-share-options').classList.remove('active')">Tutup</button></div></div>`;
-        if(!modal.parentNode)document.body.appendChild(modal);modal.classList.add('active');
-      }catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan medali: '+(e.message||'coba lagi'));}}
+        const blob=await buildResultCardBlob();
+        const name=String(currentStudent?.name||'Siswa');const score=Number(document.getElementById('result-score')?.textContent||0);
+        await camstudyShareImage(blob,'Hasil-Quiz-CAMSTUDY.png','Hasil Belajar CAMSTUDY',`Saya mendapatkan nilai ${score} di CAMSTUDY! — ${name}`,'result');
+      }catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan hasil quiz: '+(e.message||'coba lagi'));}
+    }
+    async function createMedalCardBlob(){
+      const info=getRankInfo(Array.isArray(currentStudent?.completedSubjects)?currentStudent.completedSubjects.length:0);const name=String(currentStudent?.name||'Siswa');
+      const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const ctx=canvas.getContext('2d');const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#f8fafc');grad.addColorStop(1,'#dbeafe');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);
+      ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 58px Arial';ctx.fillText('CAMSTUDY',540,120);ctx.font='bold 34px Arial';ctx.fillText('SERTIFIKAT PENGHARGAAN',540,180);ctx.fillStyle='#fff';roundRect(ctx,80,230,920,900,42);ctx.fill();ctx.strokeStyle='#334155';ctx.lineWidth=5;ctx.stroke();
+      const shape=['medal-circle','medal-shield','medal-hex','medal-diamond','medal-star','medal-ribbon'][Math.max(1,Number(info.level)||1)%6];ctx.save();ctx.translate(540,475);ctx.fillStyle='#e2e8f0';ctx.strokeStyle='#334155';ctx.lineWidth=10;ctx.beginPath();
+      if(shape==='medal-star'){for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,r=i%2?92:125,x=Math.cos(a)*r,y=Math.sin(a)*r;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();}else if(shape==='medal-hex'){for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3,x=Math.cos(a)*125,y=Math.sin(a)*125;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();}else if(shape==='medal-diamond'){ctx.moveTo(0,-130);ctx.lineTo(130,0);ctx.lineTo(0,130);ctx.lineTo(-130,0);ctx.closePath();}else if(shape==='medal-shield'){ctx.moveTo(0,-130);ctx.lineTo(110,-85);ctx.lineTo(95,65);ctx.lineTo(0,130);ctx.lineTo(-95,65);ctx.lineTo(-110,-85);ctx.closePath();}else{ctx.arc(0,0,125,0,Math.PI*2);}ctx.fill();ctx.stroke();ctx.restore();
+      ctx.fillStyle='#0f172a';ctx.font='bold 72px Arial';ctx.fillText(info.icon||'🏅',540,500);ctx.font='bold 48px Arial';ctx.fillText(name.slice(0,32),540,700);ctx.font='bold 40px Arial';ctx.fillText(info.title||'Pelajar Aktif',540,775);ctx.font='30px Arial';ctx.fillStyle='#475569';ctx.fillText(info.medal||'Penghargaan CAMSTUDY',540,830);ctx.fillText(`LEVEL ${info.level||0} • ${info.subjects||0} MAPEL SELESAI`,540,890);ctx.font='26px Arial';ctx.fillText(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}),540,960);ctx.fillStyle='#164e83';ctx.font='bold 28px Arial';ctx.fillText('CAMSTUDY • Belajar, berkembang, berprestasi.',540,1040);return await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    }
+    async function downloadMedalCard(){
+      try{const blob=await createMedalCardBlob();camstudyDownloadBlob(blob,'Penghargaan-Medali-CAMSTUDY.png');alert('Penghargaan medali berhasil disimpan sebagai gambar.');}catch(e){alert('Gagal menyimpan gambar penghargaan: '+(e.message||'coba lagi'));}
+    }
+    async function shareMedalCard(){
+      try{const blob=await createMedalCardBlob();const info=getRankInfo(Array.isArray(currentStudent?.completedSubjects)?currentStudent.completedSubjects.length:0);await camstudyShareImage(blob,'Penghargaan-Medali-CAMSTUDY.png','Penghargaan CAMSTUDY',`Saya mendapatkan ${info.medal||'penghargaan'} di CAMSTUDY!`,'medal');}
+      catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan medali: '+(e.message||'coba lagi'));}
+    }
 
     function recordQuizViolationOnce() {
         if (!isQuizActive || !currentStudent || hiddenViolationRecorded) return;
@@ -2339,6 +2363,7 @@ let audioCtx = null;
             select.value = subjects[0].id;
         }
     }
+    function escapeAttr(v){return String(v??'').replace(/&/g,'&amp;').replace(/\"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
     function renderQuestionManager() {
         const selectId = document.getElementById('select-subject-manage').value;
         const container = document.getElementById('question-list-container');
@@ -2355,7 +2380,7 @@ let audioCtx = null;
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <strong>Soal ${i + 1}: ${escapeReviewText(q.q||'')}</strong>
-                    <div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="editQuestion('${subj.id}', ${i}, '${activeManageSemester}')">Edit</button><button class="btn btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteQuestion('${subj.id}', ${i})">Hapus</button></div>
+                    <div style="display:flex;gap:6px;flex-shrink:0"><button type="button" class="btn btn-secondary js-edit-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" data-semester="${escapeAttr(String(activeManageSemester))}" style="padding:4px 10px;font-size:12px">Edit</button><button type="button" class="btn btn-danger js-delete-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" style="padding:4px 10px; font-size:12px;">Hapus</button></div>
                 </div>
                 <div style="margin-top:10px; font-size:13px; color:var(--text-muted);">
                     Kunci: <strong style="color:var(--success);">${(Array.isArray(q.answer)?q.answer:[q.answer]).map(a=>['A','B','C','D'][a]+' - '+q.options[a]).join(', ')}</strong>${q.image?'<br><img src="'+q.image+'" alt="Foto soal" style="max-width:220px;max-height:140px;margin-top:8px;border-radius:8px">':''}
@@ -2468,84 +2493,68 @@ let audioCtx = null;
         resetQuestionForm();
         document.getElementById('modal-add-question').classList.remove('active');
     }
+    window.openModalAddQuestion = openModalAddQuestion;
+    window.editQuestion = editQuestion;
+    window.saveQuestion = saveQuestion;
+    window.closeModalAddQuestion = closeModalAddQuestion;
     async function saveQuestion() {
-        // Khusus menu Tambah/Edit Soal: tentukan target sebelum menyimpan agar tidak berubah saat render/sinkronisasi.
-        const selectId = document.getElementById('select-subject-manage')?.value || '';
-        const subj = subjects.find(s => s.id === selectId);
-        if (!subj) return alert('Pilih mapel terlebih dahulu!');
-
-        const targetSemester = editingQuestionSemester || activeManageSemester || document.getElementById('manage-semester')?.value || 'kelas10_s1';
-        const targetIndex = editingQuestionIndex;
-        const targetSubjectId = editingQuestionSubjectId;
-        const q = document.getElementById('q-text')?.value.trim() || '';
-        const opts = [0,1,2,3].map(i => document.getElementById('q-opt-'+i)?.value.trim() || '');
-        const selectedCorrect = [...document.querySelectorAll('.q-correct-check:checked')]
-            .map(c => Number(c.value)).filter(n => Number.isInteger(n) && n >= 0 && n <= 3);
-        const exp = document.getElementById('q-exp')?.value.trim() || '';
-
-        if (!q || opts.some(o => !o)) return alert('Harap isi pertanyaan dan semua pilihan jawaban!');
-        if (!selectedCorrect.length) return alert('Pilih minimal satu kunci jawaban.');
-
-        const qset = getQuestionSet(subj, targetSemester, true);
-        const isEditing = targetIndex !== null && targetSubjectId === subj.id && targetIndex >= 0 && targetIndex < qset.length;
-        const existing = isEditing ? qset[targetIndex] : null;
-        const imageFile = document.getElementById('q-image')?.files?.[0];
-
-        const commit = (image) => {
-            const record = {
-                ...(existing || {}),
-                q,
-                options: opts,
-                answer: selectedCorrect.length > 1 ? selectedCorrect : selectedCorrect[0],
-                exp,
-                image: image || existing?.image || '',
-                type: existing?.type === 'multiple' ? 'multiple' : 'choice',
-                updatedAt: Date.now()
-            };
-
-            if (isEditing) qset[targetIndex] = record;
-            else qset.push({...record, createdAt: Date.now()});
-
-            // Simpan perubahan lokal terlebih dahulu. Ini adalah penyimpanan utama menu Tambah/Edit Soal.
+        // Kunci mapel + semester + indeks soal sejak tombol Simpan ditekan agar proses tambah/edit
+        // tidak berubah target walaupun ada sinkronisasi atau render ulang di tengah proses.
+        const selectId=document.getElementById('select-subject-manage')?.value||'';
+        const subj=subjects.find(s=>s.id===selectId);
+        if(!subj)return alert('Pilih mapel terlebih dahulu!');
+        const targetSemester=editingQuestionSemester||activeManageSemester||document.getElementById('manage-semester')?.value||'kelas10_s1';
+        const targetIndex=editingQuestionIndex;
+        const targetSubjectId=editingQuestionSubjectId;
+        const q=document.getElementById('q-text').value.trim();
+        const opts=[0,1,2,3].map(i=>document.getElementById('q-opt-'+i).value.trim());
+        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value)).filter(n=>Number.isInteger(n)&&n>=0&&n<=3);
+        const exp=document.getElementById('q-exp').value.trim();
+        if(!q||opts.some(o=>!o))return alert('Harap isi pertanyaan dan semua pilihan jawaban!');
+        if(!selectedCorrect.length)return alert('Pilih minimal satu kunci jawaban.');
+        const qset=getQuestionSet(subj,targetSemester,true);
+        const isEditing=targetIndex!==null&&targetSubjectId===subj.id&&targetIndex>=0&&targetIndex<qset.length;
+        const existing=isEditing?qset[targetIndex]:null;
+        const finishSave=async image=>{
+            const record={...(existing||{}),q,options:opts,answer:selectedCorrect.length>1?selectedCorrect:selectedCorrect[0],exp,image:image||existing?.image||'',type:existing?.type==='multiple'?'multiple':'choice',updatedAt:Date.now()};
+            if(isEditing) qset[targetIndex]=record;
+            else qset.push({...record,createdAt:Date.now()});
+            // Simpan lokal terlebih dahulu agar perubahan tidak hilang walaupun cloud sedang offline.
             saveSubjects();
-            editingQuestionIndex = null;
-            editingQuestionSubjectId = null;
-            editingQuestionSemester = null;
-            activeManageSemester = targetSemester;
-            resetQuestionForm();
-            closeModalAddQuestion();
-            const semSelect = document.getElementById('manage-semester');
-            if (semSelect) semSelect.value = targetSemester;
+            editingQuestionIndex=null;editingQuestionSubjectId=null;editingQuestionSemester=null;
+            resetQuestionForm();closeModalAddQuestion();
             populateSubjectSelect(subj.id);
-            renderQuestionManager();
-            renderTeacherSubjectTable();
-            renderStudentDashboardIfVisible();
-
-            // Sinkronisasi server hanya setelah penyimpanan lokal berhasil; kegagalan server tidak membatalkan soal.
-            if (ASTS_CLOUD.databaseURL && sessionStorage.getItem('portal_teacher_token')) {
-                cloudRequest('subjects', 'PUT', {data: subjects, updatedAt: Date.now()})
-                    .then(saved => {
-                        if (saved && saved.ok === true) {
-                            alert(isEditing ? 'Perubahan soal berhasil disimpan dan disinkronkan ke server.' : 'Soal berhasil ditambahkan dan disinkronkan ke server.');
-                        } else {
-                            alert(isEditing ? 'Perubahan soal berhasil disimpan.' : 'Soal berhasil ditambahkan.');
-                        }
-                    })
-                    .catch(() => alert(isEditing ? 'Perubahan soal berhasil disimpan di perangkat ini.' : 'Soal berhasil ditambahkan di perangkat ini.'));
-            } else {
-                alert(isEditing ? 'Perubahan soal berhasil disimpan.' : 'Soal berhasil ditambahkan.');
+            const semSelect=document.getElementById('manage-semester');if(semSelect)semSelect.value=targetSemester;
+            activeManageSemester=targetSemester;
+            renderQuestionManager();renderTeacherSubjectTable();renderStudentDashboardIfVisible();
+            // Bila guru sudah login dan cloud tersedia, tunggu konfirmasi PUT supaya Add/Edit benar-benar tersimpan server.
+            if(ASTS_CLOUD.databaseURL&&sessionStorage.getItem('portal_teacher_token')){
+                try{
+                    const saved=await cloudRequest('subjects','PUT',{data:subjects,updatedAt:Date.now()});
+                    if(!saved||saved.ok!==true)throw new Error('Server belum mengonfirmasi penyimpanan mapel/soal.');
+                    const fresh=await cloudRequest('subjects');
+                    if(fresh&&Array.isArray(fresh.data)){
+                        subjects=fresh.data;safeSetJSON('asts_subj_v4',subjects);
+                        populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();renderResultsTable();
+                    }
+                    alert(isEditing?'Perubahan soal berhasil disimpan dan disinkronkan ke server.':'Soal berhasil ditambahkan dan disinkronkan ke server.');
+                }catch(err){
+                    alert((isEditing?'Perubahan soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ':'Soal tersimpan di perangkat ini, tetapi sinkronisasi server gagal: ')+(err.message||'periksa koneksi server.'));
+                }
+            }else{
+                alert(isEditing?'Perubahan soal berhasil disimpan.':'Soal berhasil ditambahkan.');
             }
         };
-
-        if (imageFile) {
-            if (imageFile.size > 1500000) return alert('Foto soal maksimal 1,5 MB.');
-            const reader = new FileReader();
-            reader.onload = () => commit(String(reader.result || ''));
-            reader.onerror = () => alert('Foto soal gagal dibaca.');
+        const imageFile=document.getElementById('q-image')?.files?.[0];
+        if(imageFile){
+            if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');
+            const reader=new FileReader();
+            reader.onload=()=>finishSave(String(reader.result||''));
+            reader.onerror=()=>alert('Foto soal gagal dibaca.');
             reader.readAsDataURL(imageFile);
             return;
         }
-        commit(existing?.image || '');
+        await finishSave(existing?.image||'');
     }
     function setupQuestionFormEnterNavigation() {
         const moveOnEnter = (fields, submitAtEnd = null) => {
@@ -2639,6 +2648,37 @@ let audioCtx = null;
             renderStudentDashboard();
         }
     }
+    function setupBankQuestionControls() {
+        const addBtn = document.getElementById('btn-add-question-bank');
+        if (addBtn && !addBtn.dataset.bound) {
+            addBtn.dataset.bound = '1';
+            addBtn.addEventListener('click', function () { openModalAddQuestion(); });
+        }
+        const cancelBtn = document.getElementById('btn-cancel-question');
+        if (cancelBtn && !cancelBtn.dataset.bound) {
+            cancelBtn.dataset.bound = '1';
+            cancelBtn.addEventListener('click', function () { closeModalAddQuestion(); });
+        }
+        const saveBtn = document.getElementById('btn-save-question');
+        if (saveBtn && !saveBtn.dataset.bound) {
+            saveBtn.dataset.bound = '1';
+            saveBtn.addEventListener('click', function () { saveQuestion(); });
+        }
+        const list = document.getElementById('question-list-container');
+        if (list && !list.dataset.bound) {
+            list.dataset.bound = '1';
+            list.addEventListener('click', function (event) {
+                const edit = event.target.closest('.js-edit-question');
+                if (edit) {
+                    editQuestion(edit.dataset.subjectId, Number(edit.dataset.questionIndex), edit.dataset.semester);
+                    return;
+                }
+                const del = event.target.closest('.js-delete-question');
+                if (del) deleteQuestion(del.dataset.subjectId, Number(del.dataset.questionIndex));
+            });
+        }
+    }
+
     function deleteQuestion(subjId, index) {
         const subj = subjects.find(s => s.id === subjId);
         if (subj && confirm('Hapus soal ini?')) {
@@ -2886,6 +2926,7 @@ let audioCtx = null;
 
     function showFirstSyncGuide(){try{if(!localStorage.getItem('asts_sync_tutorial_seen_v2'))setTimeout(()=>{openSyncTutorial();localStorage.setItem('asts_sync_tutorial_seen_v2','1')},700)}catch(e){}}
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showFirstSyncGuide,{once:true});else showFirstSyncGuide();
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setupBankQuestionControls,{once:true});else setupBankQuestionControls();
 
     // Keep the same account active after a refresh in this browser tab.
     // Student login uses name only; no student PIN/password is stored in sessionStorage.
