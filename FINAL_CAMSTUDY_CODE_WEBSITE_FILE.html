@@ -3065,4 +3065,96 @@ let audioCtx = null;
 })();
 </script>
 </body>
-</html>
+</html><script>
+(function(){
+  /* CAMSTUDY — dedicated Bank Soal Add/Edit controller.
+     This patch is intentionally limited to Tambah Soal/Edit Soal. */
+  var editState={mode:'add',subjectId:null,index:null,semester:null,oldImage:''};
+  function el(id){return document.getElementById(id);}
+  function selectedSemester(){return el('manage-semester')?.value || 'kelas10_s1';}
+  function getSubject(id){return (typeof subjects!=='undefined'&&Array.isArray(subjects)) ? subjects.find(function(s){return String(s.id)===String(id);}) : null;}
+  function qset(subj,sem){return typeof getQuestionSet==='function' ? getQuestionSet(subj,sem,true) : (subj.questionSets?.[sem]||(subj.questionSets[sem]=[]));}
+  function resetFormOnly(){
+    ['q-text','q-opt-0','q-opt-1','q-opt-2','q-opt-3','q-exp'].forEach(function(id){var x=el(id);if(x)x.value='';});
+    document.querySelectorAll('.q-correct-check').forEach(function(x){x.checked=false;});
+    var img=el('q-image');if(img)img.value='';
+  }
+  function setTitle(mode){
+    var h=document.querySelector('#modal-add-question h3');
+    if(h)h.innerHTML=mode==='edit' ? '<i class="fa-solid fa-pen-to-square"></i> Edit Soal' : '<i class="fa-solid fa-file-circle-plus"></i> Tambah Soal Baru';
+    var b=el('btn-save-question');if(b)b.textContent=mode==='edit'?'Simpan Perubahan':'Simpan Soal';
+  }
+  function openAdd(){
+    editState={mode:'add',subjectId:null,index:null,semester:selectedSemester(),oldImage:''};
+    resetFormOnly();setTitle('add');
+    var m=el('modal-add-question');if(!m)throw new Error('Form Tambah Soal tidak ditemukan.');
+    m.classList.add('active');setTimeout(function(){el('q-text')?.focus();},40);
+  }
+  function openEdit(subjectId,index,semester){
+    var subj=getSubject(subjectId);var sem=semester||selectedSemester();var set=subj?qset(subj,sem):[];var q=set && set[index];
+    if(!subj||!q)throw new Error('Soal yang akan diedit tidak ditemukan.');
+    editState={mode:'edit',subjectId:String(subjectId),index:Number(index),semester:String(sem),oldImage:q.image||''};
+    if(el('select-subject-manage'))el('select-subject-manage').value=subjectId;
+    if(el('manage-semester'))el('manage-semester').value=sem;
+    el('q-text').value=q.q||'';
+    (Array.isArray(q.options)?q.options:['','','','']).forEach(function(v,i){if(el('q-opt-'+i))el('q-opt-'+i).value=v||'';});
+    var answers=Array.isArray(q.answer)?q.answer:[q.answer];
+    document.querySelectorAll('.q-correct-check').forEach(function(c){c.checked=answers.map(Number).indexOf(Number(c.value))>=0;});
+    el('q-exp').value=q.exp||'';
+    if(el('q-image'))el('q-image').value='';
+    setTitle('edit');
+    var m=el('modal-add-question');if(!m)throw new Error('Form Edit Soal tidak ditemukan.');
+    m.classList.add('active');setTimeout(function(){el('q-text')?.focus();},40);
+  }
+  function closeEditor(){
+    var m=el('modal-add-question');if(m)m.classList.remove('active');
+    editState={mode:'add',subjectId:null,index:null,semester:selectedSemester(),oldImage:''};
+    resetFormOnly();setTitle('add');
+  }
+  function saveCore(imageData){
+    var subjectId=el('select-subject-manage')?.value;
+    var subj=getSubject(subjectId);if(!subj)throw new Error('Pilih mata pelajaran terlebih dahulu.');
+    var sem=editState.semester||selectedSemester();var set=qset(subj,sem);
+    var text=el('q-text')?.value.trim()||'';
+    var options=[0,1,2,3].map(function(i){return el('q-opt-'+i)?.value.trim()||'';});
+    var correct=[].slice.call(document.querySelectorAll('.q-correct-check:checked')).map(function(c){return Number(c.value);});
+    var exp=el('q-exp')?.value.trim()||'';
+    if(!text||options.some(function(x){return !x;}))throw new Error('Harap isi pertanyaan dan semua pilihan jawaban.');
+    if(!correct.length)throw new Error('Pilih minimal satu kunci jawaban.');
+    var isEdit=editState.mode==='edit' && String(editState.subjectId)===String(subjectId) && Number.isInteger(editState.index) && editState.index>=0 && editState.index<set.length;
+    var old=isEdit?set[editState.index]:null;
+    var rec=Object.assign({},old||{}, {q:text,options:options,answer:correct.length>1?correct:correct[0],exp:exp,image:imageData||((old&&old.image)||''),type:(old&&old.type==='multiple')?'multiple':'choice',updatedAt:Date.now()});
+    if(isEdit)set[editState.index]=rec;else set.push(Object.assign(rec,{createdAt:Date.now()}));
+    if(typeof saveSubjects==='function')saveSubjects();
+    if(typeof populateSubjectSelect==='function')populateSubjectSelect(subj.id);
+    if(typeof renderQuestionManager==='function')renderQuestionManager();
+    if(typeof renderTeacherSubjectTable==='function')renderTeacherSubjectTable();
+    if(typeof renderStudentDashboardIfVisible==='function')renderStudentDashboardIfVisible();
+    var wasEdit=isEdit;closeEditor();
+    alert(wasEdit?'Soal berhasil diperbarui.':'Soal berhasil ditambahkan.');
+  }
+  function save(){
+    var file=el('q-image')?.files?.[0];
+    if(file){
+      if(file.size>1500000){alert('Foto soal maksimal 1,5 MB.');return;}
+      var reader=new FileReader();reader.onload=function(){try{saveCore(String(reader.result||''));}catch(e){console.error(e);alert(e.message||'Soal gagal disimpan.');}};reader.onerror=function(){alert('Foto soal gagal dibaca.');};reader.readAsDataURL(file);return;
+    }
+    try{saveCore('');}catch(e){console.error(e);alert(e.message||'Soal gagal disimpan.');}
+  }
+  window.camstudyOpenAddQuestion=openAdd;
+  window.camstudyEditQuestion=openEdit;
+  window.camstudySaveQuestion=save;
+  window.camstudyCloseQuestion=closeEditor;
+  /* Force the visible Bank Soal controls to use this dedicated controller. */
+  function bind(){
+    var add=el('btn-add-question-bank');if(add)add.onclick=function(e){e.preventDefault();openAdd();};
+    var saveBtn=el('btn-save-question');if(saveBtn)saveBtn.onclick=function(e){e.preventDefault();save();};
+    var cancel=el('btn-cancel-question');if(cancel)cancel.onclick=function(e){e.preventDefault();closeEditor();};
+    var list=el('question-list-container');if(list&&!list.dataset.camstudyDedicatedBound){
+      list.dataset.camstudyDedicatedBound='1';
+      list.addEventListener('click',function(e){var b=e.target.closest('.js-edit-question');if(!b)return;e.preventDefault();openEdit(b.dataset.subjectId,Number(b.dataset.questionIndex),b.dataset.semester);});
+    }
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
+})();
+</script>
