@@ -857,7 +857,7 @@
             <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <label style="font-weight: 700; font-size: 14px; margin: 0;">Pilih Mapel:</label>
                 <select id="select-subject-manage" style="max-width: 300px; margin: 0;" onchange="renderQuestionManager()"></select><select id="manage-semester" style="max-width:280px;margin:0" onchange="activeManageSemester=this.value;renderQuestionManager()"><option value="kelas10_s1">Kelas 10 • Semester 1</option><option value="kelas10_s2">Kelas 10 • Semester 2</option><option value="kelas11_s1">Kelas 11 • Semester 1</option><option value="kelas11_s2">Kelas 11 • Semester 2</option><option value="kelas12_s1">Kelas 12 • Semester 1</option><option value="kelas12_s2">Kelas 12 • Semester 2</option></select>
-                <button type="button" id="btn-add-question-bank" class="btn" style="margin-left: auto;">
+                <button type="button" id="btn-add-question-bank" class="btn" style="margin-left: auto;" onclick="window.camstudyOpenAddQuestion()">
                     <i class="fa-solid fa-plus"></i> Tambah Soal
                 </button>
             </div>
@@ -1023,8 +1023,8 @@
         <label style="font-size: 13px; font-weight: 700;">Pembahasan</label>
         <textarea id="q-exp" rows="2" placeholder="Penjelasan kunci jawaban..."></textarea>
         <div style="display: flex; gap: 10px; margin-top: 10px;">
-            <button type="button" id="btn-cancel-question" class="btn btn-secondary" style="flex: 1;">Batal</button>
-            <button type="button" id="btn-save-question" class="btn" style="flex: 1;">Simpan Soal</button>
+            <button type="button" id="btn-cancel-question" class="btn btn-secondary" style="flex: 1;" onclick="window.camstudyCloseQuestion()">Batal</button>
+            <button type="button" id="btn-save-question" class="btn" style="flex: 1;" onclick="window.camstudySaveQuestion()">Simpan Soal</button>
         </div>
     </div>
 </div>
@@ -2030,6 +2030,11 @@ let audioCtx = null;
             ${kosong ? `<span class="badge badge-warning">⚪ ${kosong} Kosong</span>` : ''}
         `;
     }
+    function camstudyRoundRect(ctx,x,y,w,h,r){
+      r=Math.max(0,Math.min(Number(r)||0,Math.min(w,h)/2));
+      ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+    }
+    function roundRect(ctx,x,y,w,h,r){camstudyRoundRect(ctx,x,y,w,h,r);}
     function camstudyDownloadBlob(blob, filename){
       if(!blob) throw new Error('Gambar tidak dapat dibuat.');
       const url=URL.createObjectURL(blob);const a=document.createElement('a');
@@ -2380,7 +2385,7 @@ let audioCtx = null;
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <strong>Soal ${i + 1}: ${escapeReviewText(q.q||'')}</strong>
-                    <div style="display:flex;gap:6px;flex-shrink:0"><button type="button" class="btn btn-secondary js-edit-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" data-semester="${escapeAttr(String(activeManageSemester))}" style="padding:4px 10px;font-size:12px">Edit</button><button type="button" class="btn btn-danger js-delete-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" style="padding:4px 10px; font-size:12px;">Hapus</button></div>
+                    <div style="display:flex;gap:6px;flex-shrink:0"><button type="button" class="btn btn-secondary js-edit-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" data-semester="${escapeAttr(String(activeManageSemester))}" onclick="window.camstudyEditQuestion(this.dataset.subjectId, Number(this.dataset.questionIndex), this.dataset.semester)" style="padding:4px 10px;font-size:12px">Edit</button><button type="button" class="btn btn-danger js-delete-question" data-subject-id="${escapeAttr(String(subj.id))}" data-question-index="${i}" style="padding:4px 10px; font-size:12px;">Hapus</button></div>
                 </div>
                 <div style="margin-top:10px; font-size:13px; color:var(--text-muted);">
                     Kunci: <strong style="color:var(--success);">${(Array.isArray(q.answer)?q.answer:[q.answer]).map(a=>['A','B','C','D'][a]+' - '+q.options[a]).join(', ')}</strong>${q.image?'<br><img src="'+q.image+'" alt="Foto soal" style="max-width:220px;max-height:140px;margin-top:8px;border-radius:8px">':''}
@@ -2995,6 +3000,68 @@ let audioCtx = null;
  function init(){window.refreshDedicatedMaterialSubjects();renderSavedMaterials();setupIconSettings();}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
  const oldDashboard=window.renderTeacherDashboard;if(typeof oldDashboard==='function'&&!oldDashboard.__dedicatedMaterialRefresh){window.renderTeacherDashboard=function(){const r=oldDashboard.apply(this,arguments);window.refreshDedicatedMaterialSubjects();renderSavedMaterials();return r;};window.renderTeacherDashboard.__dedicatedMaterialRefresh=true;}
+})();
+
+(function(){
+  // Targeted reliability patch: Bank Soal Add/Edit and image share only.
+  window.camstudyOpenAddQuestion=function(){
+    try{
+      if(typeof openModalAddQuestion==='function'){openModalAddQuestion();return;}
+      const m=document.getElementById('modal-add-question');if(!m)throw new Error('Form Tambah/Edit Soal tidak ditemukan.');
+      m.classList.add('active');document.getElementById('q-text')?.focus();
+    }catch(e){console.error(e);alert('Menu Tambah Soal gagal dibuka: '+(e.message||'kesalahan'))}
+  };
+  window.camstudyEditQuestion=function(subjectId,index,semester){
+    try{
+      if(typeof editQuestion==='function'){editQuestion(subjectId,index,semester);return;}
+      throw new Error('Fungsi Edit Soal tidak ditemukan.');
+    }catch(e){console.error(e);alert('Edit Soal gagal dibuka: '+(e.message||'kesalahan'))}
+  };
+  window.camstudyCloseQuestion=function(){try{closeModalAddQuestion();}catch(e){document.getElementById('modal-add-question')?.classList.remove('active');}};
+  window.camstudySaveQuestion=function(){try{const r=saveQuestion();if(r&&typeof r.catch==='function')r.catch(e=>{console.error(e);alert('Soal gagal disimpan: '+(e.message||'kesalahan'));});}catch(e){console.error(e);alert('Soal gagal disimpan: '+(e.message||'kesalahan'));}};
+  // Keep globals explicit so inline buttons work even if another script wraps handlers.
+  window.openModalAddQuestion=openModalAddQuestion;
+  window.editQuestion=editQuestion;
+  window.saveQuestion=saveQuestion;
+  window.closeModalAddQuestion=closeModalAddQuestion;
+
+  function downloadBlob(blob,name){
+    if(!blob)throw new Error('Gambar tidak berhasil dibuat.');
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }
+  async function shareBlob(blob,name,title,textMsg,type){
+    if(!blob)throw new Error('Gambar tidak berhasil dibuat.');
+    const file=new File([blob],name,{type:'image/png'});
+    if(typeof navigator!=='undefined'&&typeof navigator.share==='function'){
+      let can=false;try{can=!navigator.canShare||navigator.canShare({files:[file]});}catch(_){can=false;}
+      if(can){try{await navigator.share({files:[file],title,text:textMsg});return;}catch(e){if(e&&e.name==='AbortError')return;}}
+    }
+    // Desktop/unsupported browsers: always save the actual image first, then open share choices.
+    downloadBlob(blob,name);
+    const id=type==='medal'?'camstudy-medal-share-final':'camstudy-result-share-final';
+    let modal=document.getElementById(id);
+    if(!modal){modal=document.createElement('div');modal.id=id;modal.className='modal-overlay';modal.style.zIndex='100003';document.body.appendChild(modal);}
+    const encoded=encodeURIComponent(textMsg);
+    const fb='https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(location.href);
+    modal.innerHTML='<div class="modal-body" style="max-width:540px"><h3>'+ (type==='medal'?'Bagikan Penghargaan':'Bagikan Hasil Quiz') +'</h3><p style="line-height:1.7;color:var(--text-muted)">Gambar PNG sudah disimpan. Pada perangkat yang tidak mendukung berbagi file langsung, WhatsApp/Facebook tidak mengizinkan website menempelkan file gambar secara otomatis. Lampirkan PNG yang baru disimpan.</p><div style="display:grid;gap:9px"><a class="btn btn-success" href="https://wa.me/?text='+encoded+'" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> Buka WhatsApp</a><a class="btn btn-primary" href="'+fb+'" target="_blank" rel="noopener"><i class="fa-brands fa-facebook"></i> Buka Facebook</a><button type="button" class="btn btn-secondary" id="'+id+'-close">Tutup</button></div></div>';
+    modal.classList.add('active');modal.querySelector('#'+id+'-close').onclick=()=>modal.classList.remove('active');
+  }
+  window.shareResultCard=async function(){
+    try{const blob=await buildResultCardBlob();await shareBlob(blob,'Hasil-Quiz-CAMSTUDY.png','Hasil Belajar CAMSTUDY',`Saya mendapatkan nilai ${Number(document.getElementById('result-score')?.textContent||0)} di CAMSTUDY! — ${String(currentStudent?.name||'Siswa')}`,'result');}
+    catch(e){console.error(e);if(e?.name!=='AbortError')alert('Gagal membagikan hasil quiz: '+(e.message||'kesalahan'));}
+  };
+  window.downloadResultCard=async function(){try{downloadBlob(await buildResultCardBlob(),'Hasil-Quiz-CAMSTUDY.png');alert('Hasil quiz berhasil disimpan sebagai gambar.');}catch(e){console.error(e);alert('Gagal menyimpan gambar hasil quiz: '+(e.message||'kesalahan'));}};
+  window.shareMedalCard=async function(){
+    try{const blob=await createMedalCardBlob();const info=getRankInfo(Array.isArray(currentStudent?.completedSubjects)?currentStudent.completedSubjects.length:0);await shareBlob(blob,'Penghargaan-Medali-CAMSTUDY.png','Penghargaan CAMSTUDY',`Saya mendapatkan ${info.medal||'penghargaan'} di CAMSTUDY!`,'medal');}
+    catch(e){console.error(e);if(e?.name!=='AbortError')alert('Gagal membagikan medali: '+(e.message||'kesalahan'));}
+  };
+  window.downloadMedalCard=async function(){try{downloadBlob(await createMedalCardBlob(),'Penghargaan-Medali-CAMSTUDY.png');alert('Penghargaan medali berhasil disimpan sebagai gambar.');}catch(e){console.error(e);alert('Gagal menyimpan gambar penghargaan: '+(e.message||'kesalahan'));}};
+  // Capture-phase fallback for Edit in case another click handler stops bubbling.
+  document.addEventListener('click',function(e){
+    const b=e.target.closest?.('.js-edit-question');if(b){e.preventDefault();e.stopPropagation();window.camstudyEditQuestion(b.dataset.subjectId,Number(b.dataset.questionIndex),b.dataset.semester);}
+  },true);
 })();
 </script>
 </body>
