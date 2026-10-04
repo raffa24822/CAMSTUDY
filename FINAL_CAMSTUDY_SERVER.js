@@ -4,10 +4,16 @@ const fs = require('fs');
 const path = require('path');
 const app = express();
 app.disable('x-powered-by');
-app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');next();});
+app.use((req,res,next)=>{
+  res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization, X-ASTS-Key');
+  res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,OPTIONS');
+  if(req.method==='OPTIONS') return res.sendStatus(204);
+  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');next();
+});
 app.use(express.json({ limit: '12mb', strict: true }));
 const PORT = Number(process.env.PORT || 3000);
-const TEACHER_PASSWORD = String(process.env.TEACHER_PASSWORD || 'ADMIN123');
+const TEACHER_PASSWORD = String(process.env.TEACHER_PASSWORD || process.env.ADMIN_PASSWORD || 'ADMIN123');
 const teacherSessions = new Map();
 const loginAttempts = new Map();
 const aiAttempts = new Map();
