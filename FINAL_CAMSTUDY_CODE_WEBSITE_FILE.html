@@ -1216,7 +1216,8 @@ let audioCtx = null;
     let liveChannel = null;
     /* ================= CLOUD SYNC: SAME PUBLIC SERVER ================= */
     const ASTS_PUBLIC_ORIGIN = (location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : '';
-    const ASTS_CLOUD = { databaseURL: ASTS_PUBLIC_ORIGIN || localStorage.getItem('asts_cloud_db_url') || '', apiKey: 'public' };
+    const ASTS_SAVED_SERVER_ORIGIN = normalizeCloudUrl(localStorage.getItem('asts_cloud_db_url') || '');
+    const ASTS_CLOUD = { databaseURL: ASTS_SAVED_SERVER_ORIGIN || ASTS_PUBLIC_ORIGIN || '', apiKey: 'public' };
     // Server memakai origin yang sama dengan link publik; tidak perlu setup per siswa.
     async function checkPortalServer(){
         if(!ASTS_CLOUD.databaseURL){updateCloudStatus('Buka melalui link publik untuk sinkronisasi',false);return false;}
@@ -1654,34 +1655,43 @@ let audioCtx = null;
     }
 
     async function loginSiswa() {
-        try {
-            const input=document.getElementById('input-nama-siswa');
-            const name=String(input?.value||'').trim();
-            if(!name)return alert('Silakan masukkan username siswa. Jangan gunakan nama lengkap; disarankan memakai nama panggilan atau samaran.');
-            playClickSound();
-            let user=studentAccounts.find(u=>String(u.name||'').trim().toLowerCase()===name.toLowerCase());
+        const input=document.getElementById('input-nama-siswa');
+        const name=String(input?.value||'').trim();
+        if(!name)return alert('Silakan masukkan username siswa. Jangan gunakan nama lengkap; disarankan memakai nama panggilan atau samaran.');
+        try{playClickSound();}catch(_){}
+        try{
+            const key=name.toLocaleLowerCase('id-ID');
+            let user=studentAccounts.find(u=>String(u?.name||'').trim().toLocaleLowerCase('id-ID')===key);
             if(!user){
-                user={name, createdAt:Date.now(), avatar:selectedAvatar, completedSubjects:[], highestMedalLevel:0, isOnline:true, readiness:'Siap Mengerjakan', totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
+                user={name,createdAt:Date.now(),avatar:selectedAvatar||'🦊',completedSubjects:[],highestMedalLevel:0,isOnline:true,readiness:'Siap Mengerjakan',totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
                 studentAccounts.push(user);
             }
-            // PIN lama dihapus dari alur login; siswa cukup memakai nama.
-            if(user.pin!==undefined) delete user.pin;
+            if(user.pin!==undefined)delete user.pin;
             user.completedSubjects=Array.isArray(user.completedSubjects)?user.completedSubjects:[];
-            user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0, Math.min(20,user.completedSubjects.length));
-            user.isOnline=true;user.avatar=selectedAvatar||user.avatar||'🦊';user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();
-            const attendanceDay=new Date().toLocaleDateString('en-CA');user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);user.attendanceDates=user.attendanceDates.slice(-180);
-            currentStudent=user;currentTeacher=null;currentStudent.lastSeen=Date.now();
-            sessionStorage.setItem('asts_active_role','siswa');sessionStorage.setItem('asts_active_student_name',user.name);sessionStorage.removeItem('asts_active_teacher_username');saveUsers();
-            // Login siswa tidak lagi menunggu server. Dashboard dibuka dahulu, sinkronisasi berjalan di belakang.
-            updateStudentProfileUI();if(window.refreshCamstudySemesterLabels)window.refreshCamstudySemesterLabels();renderStudentDashboard();showScreen('screen-dashboard-siswa');
+            user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0,Math.min(20,user.completedSubjects.length));
+            user.isOnline=true;user.avatar=user.avatar||selectedAvatar||'🦊';user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();user.lastSeen=Date.now();
+            const attendanceDay=new Date().toLocaleDateString('en-CA');
+            user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];
+            if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);
+            user.attendanceDates=user.attendanceDates.slice(-180);
+            currentStudent=user;currentTeacher=null;
+            sessionStorage.setItem('asts_active_role','siswa');
+            sessionStorage.setItem('asts_active_student_name',user.name);
+            sessionStorage.removeItem('asts_active_teacher_username');
+            try{safeSetJSON('asts_users_v4',studentAccounts);}catch(_){}
+            updateStudentProfileUI();
+            if(window.refreshCamstudySemesterLabels)try{window.refreshCamstudySemesterLabels();}catch(_){}
+            renderStudentDashboard();
+            showScreen('screen-dashboard-siswa');
+            try{saveUsers();}catch(e){console.warn('Penyimpanan akun lokal:',e);}
             if(ASTS_CLOUD.databaseURL){
                 cloudRequest('users','PUT',{data:[user],updatedAt:Date.now()})
                     .then(()=>{updateCloudStatus('Akun tersimpan ke server',true);return cloudPull();})
                     .catch(e=>{updateCloudStatus('Akun tersimpan lokal; server belum terjangkau',false);console.warn('Sinkronisasi akun siswa:',e.message);});
             }
-        } catch(e) {
+        }catch(e){
             console.error('Login siswa:',e);
-            alert('Login siswa gagal diproses. Silakan coba lagi dengan username siswa.');
+            alert('Login siswa gagal diproses: '+String(e?.message||e||'Kesalahan tidak diketahui')+'\n\nUsername siswa tidak memerlukan password.');
         }
     }
     function updateStudentProfileUI() {
@@ -2160,9 +2170,30 @@ let audioCtx = null;
       const username=(document.getElementById('input-nama-guru')?.value||'').trim();
       const password=(document.getElementById('input-passcode-guru')?.value||'');
       if(!username||!password)return alert('Masukkan nama guru/admin dan password.');
-      const base=normalizeCloudUrl(ASTS_CLOUD.databaseURL||ASTS_PUBLIC_ORIGIN);
-      if(!base)return alert('Link portal tidak memiliki alamat server yang bisa digunakan. Buka portal dari link publik Render.');
-      try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),12000);let res;try{res=await fetch(base+'/api/teacher-login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,body:JSON.stringify({username,password})});}finally{clearTimeout(timeout);}const data=await res.json().catch(()=>({}));if(!res.ok||!data.token)throw new Error(data.error||'Login gagal.');sessionStorage.setItem('portal_teacher_token',data.token);currentTeacher={username:username,displayName:username,loggedInAt:Date.now()};currentStudent=null;sessionStorage.setItem('asts_active_role','guru');sessionStorage.setItem('asts_active_teacher_username',username);sessionStorage.removeItem('asts_active_student_name');document.getElementById('input-passcode-guru').value='';document.getElementById('teacher-profile-label').textContent='Masuk sebagai guru/admin • Sesi server aktif';playClickSound();await cloudPull();await runCloudPushQueue();updateCloudStatus('Guru login · server terhubung dan sinkronisasi aktif',true);renderTeacherDashboard();showScreen('screen-dashboard-guru');startLiveTeacherSync();}catch(e){const msg=e?.name==='AbortError'?'Server login tidak merespons dalam 12 detik. Pastikan server/deploy aktif.':String(e.message||'Periksa username, password, dan server.');alert('Login guru/admin gagal: '+msg);}
+      const candidates=[ASTS_CLOUD.databaseURL,ASTS_PUBLIC_ORIGIN,ASTS_SAVED_SERVER_ORIGIN].map(normalizeCloudUrl).filter((v,i,a)=>v&&a.indexOf(v)===i);
+      if(!candidates.length)return alert('Alamat server login belum tersedia. Buka portal dari server CAMSTUDY atau isi alamat server pada pengaturan cloud.');
+      let lastError='Server login tidak dapat dihubungi.';
+      for(const base of candidates){
+        try{
+          const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),10000);
+          let res;
+          try{res=await fetch(base+'/api/teacher-login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,body:JSON.stringify({username,password})});}
+          finally{clearTimeout(timeout);}
+          const data=await res.json().catch(()=>({}));
+          if(res.ok&&data.token){
+            ASTS_CLOUD.databaseURL=base;localStorage.setItem('asts_cloud_db_url',base);
+            sessionStorage.setItem('portal_teacher_token',data.token);currentTeacher={username,displayName:username,loggedInAt:Date.now()};currentStudent=null;
+            sessionStorage.setItem('asts_active_role','guru');sessionStorage.setItem('asts_active_teacher_username',username);sessionStorage.removeItem('asts_active_student_name');
+            document.getElementById('input-passcode-guru').value='';
+            document.getElementById('teacher-profile-label').textContent='Masuk sebagai guru/admin • Sesi server aktif';
+            try{playClickSound();}catch(_){}
+            await cloudPull();await runCloudPushQueue();updateCloudStatus('Guru login · server terhubung dan sinkronisasi aktif',true);renderTeacherDashboard();showScreen('screen-dashboard-guru');startLiveTeacherSync();return;
+          }
+          lastError=data.error||('HTTP '+res.status);
+          if(res.status===401||res.status===429)break;
+        }catch(e){lastError=e?.name==='AbortError'?'Server tidak merespons dalam 10 detik.':String(e?.message||e||'Kesalahan koneksi');}
+      }
+      alert('Login guru/admin gagal: '+lastError+'\n\nJika password benar, pastikan alamat server CAMSTUDY yang menjalankan FINAL_CAMSTUDY_SERVER.js sedang aktif.');
     }
     function changeTeacherProfile(){alert('Nama guru/admin yang tampil mengikuti nama saat login. Password dikelola secara aman melalui Environment server.');}
     function toggleTeacherPassword(){const input=document.getElementById('input-passcode-guru');const eye=document.getElementById('teacher-password-eye');if(!input)return;const show=input.type==='password';input.type=show?'text':'password';if(eye)eye.className=show?'fa-solid fa-eye-slash':'fa-solid fa-eye';const btn=eye?.parentElement;if(btn)btn.lastChild.textContent=show?' Sembunyikan':' Lihat';}
