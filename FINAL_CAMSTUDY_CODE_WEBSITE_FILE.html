@@ -1216,8 +1216,7 @@ let audioCtx = null;
     let liveChannel = null;
     /* ================= CLOUD SYNC: SAME PUBLIC SERVER ================= */
     const ASTS_PUBLIC_ORIGIN = (location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : '';
-    const ASTS_SAVED_SERVER_ORIGIN = normalizeCloudUrl(localStorage.getItem('asts_cloud_db_url') || '');
-    const ASTS_CLOUD = { databaseURL: ASTS_SAVED_SERVER_ORIGIN || ASTS_PUBLIC_ORIGIN || '', apiKey: 'public' };
+    const ASTS_CLOUD = { databaseURL: ASTS_PUBLIC_ORIGIN || localStorage.getItem('asts_cloud_db_url') || '', apiKey: 'public' };
     // Server memakai origin yang sama dengan link publik; tidak perlu setup per siswa.
     async function checkPortalServer(){
         if(!ASTS_CLOUD.databaseURL){updateCloudStatus('Buka melalui link publik untuk sinkronisasi',false);return false;}
@@ -1655,43 +1654,34 @@ let audioCtx = null;
     }
 
     async function loginSiswa() {
-        const input=document.getElementById('input-nama-siswa');
-        const name=String(input?.value||'').trim();
-        if(!name)return alert('Silakan masukkan username siswa. Jangan gunakan nama lengkap; disarankan memakai nama panggilan atau samaran.');
-        try{playClickSound();}catch(_){}
-        try{
-            const key=name.toLocaleLowerCase('id-ID');
-            let user=studentAccounts.find(u=>String(u?.name||'').trim().toLocaleLowerCase('id-ID')===key);
+        try {
+            const input=document.getElementById('input-nama-siswa');
+            const name=String(input?.value||'').trim();
+            if(!name)return alert('Silakan masukkan username siswa. Jangan gunakan nama lengkap; disarankan memakai nama panggilan atau samaran.');
+            playClickSound();
+            let user=studentAccounts.find(u=>String(u.name||'').trim().toLowerCase()===name.toLowerCase());
             if(!user){
-                user={name,createdAt:Date.now(),avatar:selectedAvatar||'🦊',completedSubjects:[],highestMedalLevel:0,isOnline:true,readiness:'Siap Mengerjakan',totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
+                user={name, createdAt:Date.now(), avatar:selectedAvatar, completedSubjects:[], highestMedalLevel:0, isOnline:true, readiness:'Siap Mengerjakan', totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
                 studentAccounts.push(user);
             }
-            if(user.pin!==undefined)delete user.pin;
+            // PIN lama dihapus dari alur login; siswa cukup memakai nama.
+            if(user.pin!==undefined) delete user.pin;
             user.completedSubjects=Array.isArray(user.completedSubjects)?user.completedSubjects:[];
-            user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0,Math.min(20,user.completedSubjects.length));
-            user.isOnline=true;user.avatar=user.avatar||selectedAvatar||'🦊';user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();user.lastSeen=Date.now();
-            const attendanceDay=new Date().toLocaleDateString('en-CA');
-            user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];
-            if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);
-            user.attendanceDates=user.attendanceDates.slice(-180);
-            currentStudent=user;currentTeacher=null;
-            sessionStorage.setItem('asts_active_role','siswa');
-            sessionStorage.setItem('asts_active_student_name',user.name);
-            sessionStorage.removeItem('asts_active_teacher_username');
-            try{safeSetJSON('asts_users_v4',studentAccounts);}catch(_){}
-            updateStudentProfileUI();
-            if(window.refreshCamstudySemesterLabels)try{window.refreshCamstudySemesterLabels();}catch(_){}
-            renderStudentDashboard();
-            showScreen('screen-dashboard-siswa');
-            try{saveUsers();}catch(e){console.warn('Penyimpanan akun lokal:',e);}
+            user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0, Math.min(20,user.completedSubjects.length));
+            user.isOnline=true;user.avatar=selectedAvatar||user.avatar||'🦊';user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();
+            const attendanceDay=new Date().toLocaleDateString('en-CA');user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);user.attendanceDates=user.attendanceDates.slice(-180);
+            currentStudent=user;currentTeacher=null;currentStudent.lastSeen=Date.now();
+            sessionStorage.setItem('asts_active_role','siswa');sessionStorage.setItem('asts_active_student_name',user.name);sessionStorage.removeItem('asts_active_teacher_username');saveUsers();
+            // Login siswa tidak lagi menunggu server. Dashboard dibuka dahulu, sinkronisasi berjalan di belakang.
+            updateStudentProfileUI();if(window.refreshCamstudySemesterLabels)window.refreshCamstudySemesterLabels();renderStudentDashboard();showScreen('screen-dashboard-siswa');
             if(ASTS_CLOUD.databaseURL){
                 cloudRequest('users','PUT',{data:[user],updatedAt:Date.now()})
                     .then(()=>{updateCloudStatus('Akun tersimpan ke server',true);return cloudPull();})
                     .catch(e=>{updateCloudStatus('Akun tersimpan lokal; server belum terjangkau',false);console.warn('Sinkronisasi akun siswa:',e.message);});
             }
-        }catch(e){
+        } catch(e) {
             console.error('Login siswa:',e);
-            alert('Login siswa gagal diproses: '+String(e?.message||e||'Kesalahan tidak diketahui')+'\n\nUsername siswa tidak memerlukan password.');
+            alert('Login siswa gagal diproses. Silakan coba lagi dengan username siswa.');
         }
     }
     function updateStudentProfileUI() {
@@ -2170,30 +2160,9 @@ let audioCtx = null;
       const username=(document.getElementById('input-nama-guru')?.value||'').trim();
       const password=(document.getElementById('input-passcode-guru')?.value||'');
       if(!username||!password)return alert('Masukkan nama guru/admin dan password.');
-      const candidates=[ASTS_CLOUD.databaseURL,ASTS_PUBLIC_ORIGIN,ASTS_SAVED_SERVER_ORIGIN].map(normalizeCloudUrl).filter((v,i,a)=>v&&a.indexOf(v)===i);
-      if(!candidates.length)return alert('Alamat server login belum tersedia. Buka portal dari server CAMSTUDY atau isi alamat server pada pengaturan cloud.');
-      let lastError='Server login tidak dapat dihubungi.';
-      for(const base of candidates){
-        try{
-          const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),10000);
-          let res;
-          try{res=await fetch(base+'/api/teacher-login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,body:JSON.stringify({username,password})});}
-          finally{clearTimeout(timeout);}
-          const data=await res.json().catch(()=>({}));
-          if(res.ok&&data.token){
-            ASTS_CLOUD.databaseURL=base;localStorage.setItem('asts_cloud_db_url',base);
-            sessionStorage.setItem('portal_teacher_token',data.token);currentTeacher={username,displayName:username,loggedInAt:Date.now()};currentStudent=null;
-            sessionStorage.setItem('asts_active_role','guru');sessionStorage.setItem('asts_active_teacher_username',username);sessionStorage.removeItem('asts_active_student_name');
-            document.getElementById('input-passcode-guru').value='';
-            document.getElementById('teacher-profile-label').textContent='Masuk sebagai guru/admin • Sesi server aktif';
-            try{playClickSound();}catch(_){}
-            await cloudPull();await runCloudPushQueue();updateCloudStatus('Guru login · server terhubung dan sinkronisasi aktif',true);renderTeacherDashboard();showScreen('screen-dashboard-guru');startLiveTeacherSync();return;
-          }
-          lastError=data.error||('HTTP '+res.status);
-          if(res.status===401||res.status===429)break;
-        }catch(e){lastError=e?.name==='AbortError'?'Server tidak merespons dalam 10 detik.':String(e?.message||e||'Kesalahan koneksi');}
-      }
-      alert('Login guru/admin gagal: '+lastError+'\n\nJika password benar, pastikan alamat server CAMSTUDY yang menjalankan FINAL_CAMSTUDY_SERVER.js sedang aktif.');
+      const base=normalizeCloudUrl(ASTS_CLOUD.databaseURL||ASTS_PUBLIC_ORIGIN);
+      if(!base)return alert('Link portal tidak memiliki alamat server yang bisa digunakan. Buka portal dari link publik Render.');
+      try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),12000);let res;try{res=await fetch(base+'/api/teacher-login',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,body:JSON.stringify({username,password})});}finally{clearTimeout(timeout);}const data=await res.json().catch(()=>({}));if(!res.ok||!data.token)throw new Error(data.error||'Login gagal.');sessionStorage.setItem('portal_teacher_token',data.token);currentTeacher={username:username,displayName:username,loggedInAt:Date.now()};currentStudent=null;sessionStorage.setItem('asts_active_role','guru');sessionStorage.setItem('asts_active_teacher_username',username);sessionStorage.removeItem('asts_active_student_name');document.getElementById('input-passcode-guru').value='';document.getElementById('teacher-profile-label').textContent='Masuk sebagai guru/admin • Sesi server aktif';playClickSound();await cloudPull();await runCloudPushQueue();updateCloudStatus('Guru login · server terhubung dan sinkronisasi aktif',true);renderTeacherDashboard();showScreen('screen-dashboard-guru');startLiveTeacherSync();}catch(e){const msg=e?.name==='AbortError'?'Server login tidak merespons dalam 12 detik. Pastikan server/deploy aktif.':String(e.message||'Periksa username, password, dan server.');alert('Login guru/admin gagal: '+msg);}
     }
     function changeTeacherProfile(){alert('Nama guru/admin yang tampil mengikuti nama saat login. Password dikelola secara aman melalui Environment server.');}
     function toggleTeacherPassword(){const input=document.getElementById('input-passcode-guru');const eye=document.getElementById('teacher-password-eye');if(!input)return;const show=input.type==='password';input.type=show?'text':'password';if(eye)eye.className=show?'fa-solid fa-eye-slash':'fa-solid fa-eye';const btn=eye?.parentElement;if(btn)btn.lastChild.textContent=show?' Sembunyikan':' Lihat';}
@@ -2738,73 +2707,8 @@ let audioCtx = null;
     }
 
     // Mark a student offline when the tab is actually closed; periodic heartbeat below handles active sessions.
-    window.addEventListener('pageshow',function(){if(currentStudent){currentStudent.isOnline=true;currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();if(document.getElementById('screen-quiz')?.classList.contains('active'))currentStudent.readiness='Sedang mengerjakan';else if(!document.getElementById('screen-result')?.classList.contains('active'))currentStudent.readiness='Siap mengerjakan';saveUsers();}});
-    window.addEventListener('pagehide', function () {
-      try { if(currentStudent){currentStudent.isOnline=false;currentStudent.readiness='Offline';currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();safeSetJSON('asts_users_v4',studentAccounts);if(ASTS_CLOUD.databaseURL){const payload=JSON.stringify({data:studentAccounts,updatedAt:Date.now()});const url=normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/asts_kelas10/users.json';if(navigator.sendBeacon){navigator.sendBeacon(normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/api/presence/offline',new Blob([JSON.stringify({name:currentStudent.name})],{type:'application/json'}));}}} } catch(_){}
-    });
-
-
-    function showFirstSyncGuide(){try{if(!localStorage.getItem('asts_sync_tutorial_seen_v2'))setTimeout(()=>{openSyncTutorial();localStorage.setItem('asts_sync_tutorial_seen_v2','1')},700)}catch(e){}}
-    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showFirstSyncGuide,{once:true});else showFirstSyncGuide();
-
-    // Keep the same account active after a refresh in this browser tab.
-    // Student login uses name only; no student PIN/password is stored in sessionStorage.
-    document.addEventListener('DOMContentLoaded', function restoreSessionAfterRefresh() {
-        const role = sessionStorage.getItem('asts_active_role');
-        if (role === 'siswa') {
-            const name = sessionStorage.getItem('asts_active_student_name') || '';
-            const user = studentAccounts.find(u => String(u.name).trim().toLowerCase() === name.trim().toLowerCase());
-            if (user) {
-                currentStudent = user; currentTeacher = null;
-                updateStudentProfileUI(); renderStudentDashboard(); showScreen('screen-dashboard-siswa');
-            } else {
-                sessionStorage.removeItem('asts_active_role');
-                sessionStorage.removeItem('asts_active_student_name');
-            }
-        } else if (role === 'guru') {
-            const username = sessionStorage.getItem('asts_active_teacher_username') || '';
-            const savedProfile = safeGetJSON('asts_teacher_profile_v1', null);
-            const savedCredentials = safeGetJSON('asts_teacher_credentials_v1', null);
-            if (username && savedProfile && String(savedProfile.username).toLowerCase() === username.toLowerCase()) {
-                currentTeacher = savedProfile; currentStudent = null;
-                const label = document.getElementById('teacher-profile-label');
-                if (label) label.textContent = 'Masuk sebagai: ' + (currentTeacher.displayName || username) + ' (@' + username + ') • Kelola ujian, tugas, dan nilai.';
-                renderTeacherDashboard(); showScreen('screen-dashboard-guru');
-            } else {
-                sessionStorage.removeItem('asts_active_role');
-                sessionStorage.removeItem('asts_active_teacher_username');
-            }
-        }
-    }, { once: true });
-
-
-    function showCamstudyWelcomeGuide(){
-      try{if(sessionStorage.getItem('camstudy_guide_seen_session'))return;if(document.getElementById('camstudy-first-guide-modal'))return;
-      const modal=document.createElement('div');modal.id='camstudy-first-guide-modal';modal.className='modal-overlay active';modal.style.zIndex='100002';
-      const logo=document.querySelector('.camstudy-brand-logo')?.src||'';
-      modal.innerHTML=`<div class="modal-body" role="dialog" aria-modal="true" aria-labelledby="camstudy-guide-title" style="max-width:500px"><div style="text-align:center;margin-bottom:12px"><img src="${logo}" alt="Logo CAMSTUDY" style="width:70px;height:70px;object-fit:contain;background:#fff;border-radius:14px;padding:4px"></div><h3 id="camstudy-guide-title" style="text-align:center">Panduan Singkat CAMSTUDY</h3><p style="line-height:1.7">Siswa: masukkan username (JANGAN MEMASUKKAN NAMA LENGKAP). Disarankan menggunakan nama panggilan atau nama samaran. Jangan masukkan informasi pribadi, lalu tekan Masuk. Guru: pilih Dashboard Guru dan masukkan nama pengguna serta password yang dikelola di server. Jangan bagikan password guru.</p><button class="btn btn-primary" style="width:100%" id="camstudy-guide-close">Mengerti, mulai</button></div>`;
-      document.body.appendChild(modal);modal.querySelector('#camstudy-guide-close').addEventListener('click',()=>{modal.remove();sessionStorage.setItem('camstudy_guide_seen_session','1')});
-      }catch(e){console.warn('Panduan CAMSTUDY:',e)}
-    }
-    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showCamstudyWelcomeGuide,{once:true});else setTimeout(showCamstudyWelcomeGuide,250);
-</script>
-<script>
-(function(){
- const semLabels={kelas10_s1:'LATIHAN • KELAS 10 SEMESTER 1',kelas10_s2:'LATIHAN • KELAS 10 SEMESTER 2',kelas11_s1:'LATIHAN • KELAS 11 SEMESTER 1',kelas11_s2:'LATIHAN • KELAS 11 SEMESTER 2',kelas12_s1:'LATIHAN • KELAS 12 SEMESTER 1',kelas12_s2:'LATIHAN • KELAS 12 SEMESTER 2'};
- const defaultIcons={kelas10_s1:'📘',kelas10_s2:'🧠',kelas11_s1:'🧮',kelas11_s2:'💻',kelas12_s1:'🔬',kelas12_s2:'🗺️'};
- const iconChoices=['📘','📚','🧠','✏️','🎯','💻','🔬','🧮','🌐','⭐','📝','📐','🧪','🗺️','🏆','🎓'];
- function getIcons(){let local={};try{local=JSON.parse(localStorage.getItem('camstudy_semester_icons_v1')||'{}')||{};}catch(e){}let shared={};try{const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:[];shared=arr.find(x=>x&&x.semesterIcons&&typeof x.semesterIcons==='object')?.semesterIcons||{};}catch(e){}return Object.assign({},defaultIcons,local,shared);}
- window.getCamstudySemesterIcons=getIcons;
- function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
- window.clearDedicatedMaterial=function(){['material-title','material-teacher','material-content','material-file'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});dedicatedMaterialEditingId=null;const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Materi';};
- window.editDedicatedMaterial=function(id){const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:[];const m=arr.find(x=>String(x.id)===String(id));if(!m)return alert('Materi tidak ditemukan.');dedicatedMaterialEditingId=m.id;window.refreshDedicatedMaterialSubjects();const set=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v??'';};set('material-subject',m.subjectId||'');set('material-semester',m.semester||'kelas10_s1');set('material-title',m.title||'');set('material-teacher',m.teacher||'');set('material-content',m.description||'');set('material-file','');const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';const st=document.getElementById('material-save-status');if(st)st.textContent='Mode edit aktif. Lampiran lama akan dipertahankan jika tidak memilih file baru.';document.getElementById('material-title')?.scrollIntoView({behavior:'smooth',block:'center'});};
- window.refreshDedicatedMaterialSubjects=function(){const sel=document.getElementById('material-subject');if(!sel)return;const old=sel.value;const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:(Array.isArray(window.subjects)?window.subjects:[]);sel.innerHTML='<option value="">Pilih mata pelajaran</option>'+arr.map(x=>{const name=x.name||x.title||x.subject||'Mapel';const id=x.id||x.subjectId||name;const icon=typeof subjectEmoji==='function'?subjectEmoji(x.icon,name):(x.icon||'📘');return `<option value="${esc(id)}">${esc(icon)} ${esc(name)}</option>`;}).join('');if(old)sel.value=old;};
- function renderSavedMaterials(){const box=document.getElementById('dedicated-material-list');if(!box)return;const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:(Array.isArray(window.teacherMaterials)?window.teacherMaterials:[]);box.innerHTML='<h3>Materi yang sudah ditambahkan</h3>'+(arr.length?arr.slice().reverse().map(m=>`<article class="glass-panel" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px;margin:10px 0"><div><strong>${esc(m.title)}</strong><p>${esc(m.subject||'Mapel')} • ${esc(semLabels[m.semester]||m.semester||'')}</p><p>Guru: ${esc(m.teacher||'Guru')}</p><p style="white-space:pre-wrap">${esc(m.description||'')}</p>${m.fileData?`<a href="${m.fileData}" download="${esc(m.fileName||'materi')}">Buka/unduh ${esc(m.fileName||'dokumen')}</a>`:''}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" onclick="editDedicatedMaterial('${m.id}')"><i class="fa-solid fa-pen"></i> Edit materi</button><button type="button" class="btn btn-danger" onclick="deleteTeacherTask('${m.id}','material')"><i class="fa-solid fa-trash"></i> Hapus materi</button></div></article>`).join(''):'<p>Belum ada materi tersimpan.</p>');}
- window.renderSavedMaterials=renderSavedMaterials;
- window.saveDedicatedMaterial=function(){
-  const subjectSel=document.getElementById('material-subject'),sem=document.getElementById('material-semester'),title=document.getElementById('material-title'),teacher=document.getElementById('material-teacher'),content=document.getElementById('material-content'),fileInput=document.getElementById('material-file'),status=document.getElementById('material-save-status');
-  const subjectId=subjectSel?.value;const subject=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects.find(x=>String(x.id||x.subjectId||x.name)===String(subjectId)):null;const subjectName=subject?.name||subjectSel?.selectedOptions?.[0]?.textContent?.replace(/^\S+\s+/,'')||'';
-  if(!subjectId||!title?.value.trim()||!content?.value.trim()){alert('Pilih mata pelajaran dan isi judul serta materi terlebih dahulu.');return;}
+    let teacherContentMode='task';
+    function setTeacherContentMode(mode){teacherContentMode=mode==='material'?'material':'task';const isMaterial=teacherContentMode==='material';const heading=document.getElementById('teacher-content-heading');const desc=document.getElementById('teacher-content-description');const saveLabel=document.getElementById('save-content-label');const deadline=document.getElementById('task-deadline');const instructions=document.getElementById('task-instructions');const descriptionLabel=document.getElementById('task-description-label');const descriptionInput=document.getElementById('task-description');if(descriptionLabel)descriptionLabel.textContent=isMaterial?'Isi materi pelajaran':'Deskripsi tugas';if(descriptionInput)descriptionInput.placeholder=isMaterial?'Tulis atau tempel materi lengkap di sini':'Jelaskan deskripsi tugas';if(heading)heading.textContent=isMaterial?'📚 Materi Pelajaran':'📝 Tugas Harian';if(desc)desc.textContent=isMaterial?'Tambahkan materi berdasarkan mapel, kelas, semester, judul, nama guru, isi materi, dan dokumen. Materi akan tersedia pada dashboard siswa.':'Buat tugas, tentukan kelas dan semester, serta pantau pengumpulan siswa.';if(saveLabel)saveLabel.textContent=isMaterial?'Simpan Materi':'Simpan Tugas';if(deadline)deadline.parentElement.style.display=isMaterial?'none':'';if(instructions)instructions.parentElement.style.display=isMaterial?'none':'';const subs=document.getElementById('teacher-submissions-list')?.parentElement;if(subs)subs.style.display=isMaterial?'none':'';const filter=document.getElementById('task-filter');if(filter)filter.value=teacherContentMode;renderTeacherTasks();}
     function saveTaskCollections(){safeSetJSON('asts_tasks_v1',teacherTasks);safeSetJSON('asts_materials_v1',teacherMaterials);safeSetJSON('asts_submissions_v1',taskSubmissions);cloudPush('tasks',teacherTasks);cloudPush('materials',teacherMaterials);cloudPush('submissions',taskSubmissions);}
     async function saveAllToServerNow(){
         const status=document.getElementById('task-server-save-status');
@@ -2893,10 +2797,99 @@ let audioCtx = null;
       document.getElementById('task-title').scrollIntoView({behavior:'smooth',block:'center'});
     }
     function deleteTeacherTask(id,kind){if(!confirm('Hapus tugas/materi ini?'))return; if(kind==='task')teacherTasks=teacherTasks.filter(t=>t.id!==id);else teacherMaterials=teacherMaterials.filter(t=>t.id!==id);saveTaskCollections();renderTeacherTasks();renderStudentTasks();if(typeof renderDedicatedMaterialList==='function')renderDedicatedMaterialList();if(typeof window.renderSavedMaterials==='function')window.renderSavedMaterials();}
+    function moveSubject(id,dir){const i=subjects.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=subjects.length)return;[subjects[i],subjects[j]]=[subjects[j],subjects[i]];subjects.forEach((s,n)=>s.position=n);saveSubjects();renderTeacherSubjectTable();renderStudentDashboard();}
 
-    function moveSubject(id,dir){const ordered=subjects.slice().sort((a,b)=>{const ap=Number.isFinite(Number(a.position))?Number(a.position):subjects.indexOf(a);const bp=Number.isFinite(Number(b.position))?Number(b.position):subjects.indexOf(b);return ap-bp;});const i=ordered.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=ordered.length)return;[ordered[i],ordered[j]]=[ordered[j],ordered[i]];ordered.forEach((s,n)=>s.position=n);subjects=ordered;saveSubjects();renderTeacherSubjectTable();renderStudentDashboard();}
+    function exportResultsImage(){
+      if(!results.length)return alert('Belum ada data nilai.');
+      const rows=[...results].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'}) || String(a.subject||'').localeCompare(String(b.subject||''),'id',{sensitivity:'base'}));
+      const canvas=document.createElement('canvas'),w=1400,rowH=54,top=230;canvas.width=w;canvas.height=top+rows.length*rowH+70;
+      const c=canvas.getContext('2d');c.fillStyle='#f8fafc';c.fillRect(0,0,w,canvas.height);c.fillStyle='#0f172a';c.fillRect(0,0,w,155);
+      c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);const logoImg=new Image();logoImg.onload=()=>{try{c.drawImage(logoImg,52,32,68,68)}catch(e){}};logoImg.src=CAMSTUDY_LOGO_DATA;c.fillStyle='#fff';c.font='bold 40px Arial';c.fillText('CAMSTUDY',160,58);c.font='bold 28px Arial';c.fillText('REKAP NILAI SISWA',160,100);c.font='17px Arial';c.fillText('Tanggal unduh: '+new Date().toLocaleString('id-ID'),160,133);
+      c.fillStyle='#1e293b';c.font='bold 19px Arial';const headers=['No','Nama Siswa','Mata Pelajaran','Nilai','Tanggal Pengerjaan','Jam'];const xs=[50,125,430,900,1010,1240];headers.forEach((h,i)=>c.fillText(h,xs[i],205));
+      rows.forEach((r,i)=>{const y=top+i*rowH;c.fillStyle=i%2?'#e2e8f0':'#fff';c.fillRect(35,y,w-70,rowH);c.fillStyle='#0f172a';c.font='18px Arial';const dt=r.timestamp?new Date(Number(r.timestamp)):null;[String(i+1),String(r.name||'').slice(0,26),String(r.subject||'').slice(0,28),String(r.score??''),r.date|| (dt?dt.toLocaleDateString('id-ID'):'-'),r.time||(dt?dt.toLocaleTimeString('id-ID'):'-')].forEach((v,j)=>c.fillText(v,xs[j],y+33));});
+      c.fillStyle='#64748b';c.font='15px Arial';c.fillText('Dokumen rekap resmi • CAMSTUDY',50,canvas.height-25);const a=document.createElement('a');a.download='Rekap Nilai.png';const saveImage=()=>{a.href=canvas.toDataURL('image/png');a.click();};const logo=new Image();logo.onload=()=>{try{c.fillStyle='#dbeafe';c.fillRect(25,12,116,116);c.fillStyle='#334155';c.fillRect(38,25,96,96);c.fillStyle='#64748b';c.fillRect(31,32,96,96);c.fillStyle='#ffffff';c.fillRect(45,25,82,82);c.drawImage(logo,52,32,68,68)}catch(e){}saveImage();};logo.onerror=saveImage;logo.src=CAMSTUDY_LOGO_DATA;
+    }
+    async function resetResults() {
+      if(!confirm('Hapus seluruh rekap nilai dari perangkat ini dan server bersama? Akun siswa tetap dipertahankan.')) return;
+      results=[]; safeSetJSON('asts_res_v4',[]); saveResults(); refreshTeacherDashboard(false);
+      if(!ASTS_CLOUD.databaseURL||!ASTS_CLOUD.apiKey){alert('Rekap nilai pada perangkat ini sudah dihapus. Server tidak terhubung, jadi data pada perangkat lain mungkin masih ada.');return;}
+      try {
+        const token=sessionStorage.getItem('portal_teacher_token')||'';
+        const response=await fetch(normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/asts_kelas10/reset-results.json',{method:'POST',headers:{'Content-Type':'application/json','x-asts-key':ASTS_CLOUD.apiKey,'Authorization':'Bearer '+token},body:JSON.stringify({confirm:'RESET_ALL_RESULTS'}),cache:'no-store'});
+        const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data.error||('HTTP '+response.status));
+        alert('Rekap nilai berhasil dihapus dari server. Akun siswa tetap ada.');
+      } catch(e) { alert('Rekap nilai lokal sudah dihapus, tetapi penghapusan server belum terkonfirmasi: '+(e.message||'periksa koneksi')); }
+    }
+
+    // Mark a student offline when the tab is actually closed; periodic heartbeat below handles active sessions.
+
+    window.addEventListener('pageshow',function(){if(currentStudent){currentStudent.isOnline=true;currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();if(document.getElementById('screen-quiz')?.classList.contains('active'))currentStudent.readiness='Sedang mengerjakan';else if(!document.getElementById('screen-result')?.classList.contains('active'))currentStudent.readiness='Siap mengerjakan';saveUsers();}});
+    window.addEventListener('pagehide', function () {
+      try { if(currentStudent){currentStudent.isOnline=false;currentStudent.readiness='Offline';currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();safeSetJSON('asts_users_v4',studentAccounts);if(ASTS_CLOUD.databaseURL){const payload=JSON.stringify({data:studentAccounts,updatedAt:Date.now()});const url=normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/asts_kelas10/users.json';if(navigator.sendBeacon){navigator.sendBeacon(normalizeCloudUrl(ASTS_CLOUD.databaseURL)+'/api/presence/offline',new Blob([JSON.stringify({name:currentStudent.name})],{type:'application/json'}));}}} } catch(_){}
+    });
 
 
+    function showFirstSyncGuide(){try{if(!localStorage.getItem('asts_sync_tutorial_seen_v2'))setTimeout(()=>{openSyncTutorial();localStorage.setItem('asts_sync_tutorial_seen_v2','1')},700)}catch(e){}}
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showFirstSyncGuide,{once:true});else showFirstSyncGuide();
+
+    // Keep the same account active after a refresh in this browser tab.
+    // Student login uses name only; no student PIN/password is stored in sessionStorage.
+    document.addEventListener('DOMContentLoaded', function restoreSessionAfterRefresh() {
+        const role = sessionStorage.getItem('asts_active_role');
+        if (role === 'siswa') {
+            const name = sessionStorage.getItem('asts_active_student_name') || '';
+            const user = studentAccounts.find(u => String(u.name).trim().toLowerCase() === name.trim().toLowerCase());
+            if (user) {
+                currentStudent = user; currentTeacher = null;
+                updateStudentProfileUI(); renderStudentDashboard(); showScreen('screen-dashboard-siswa');
+            } else {
+                sessionStorage.removeItem('asts_active_role');
+                sessionStorage.removeItem('asts_active_student_name');
+            }
+        } else if (role === 'guru') {
+            const username = sessionStorage.getItem('asts_active_teacher_username') || '';
+            const savedProfile = safeGetJSON('asts_teacher_profile_v1', null);
+            const savedCredentials = safeGetJSON('asts_teacher_credentials_v1', null);
+            if (username && savedProfile && String(savedProfile.username).toLowerCase() === username.toLowerCase()) {
+                currentTeacher = savedProfile; currentStudent = null;
+                const label = document.getElementById('teacher-profile-label');
+                if (label) label.textContent = 'Masuk sebagai: ' + (currentTeacher.displayName || username) + ' (@' + username + ') • Kelola ujian, tugas, dan nilai.';
+                renderTeacherDashboard(); showScreen('screen-dashboard-guru');
+            } else {
+                sessionStorage.removeItem('asts_active_role');
+                sessionStorage.removeItem('asts_active_teacher_username');
+            }
+        }
+    }, { once: true });
+
+
+    function showCamstudyWelcomeGuide(){
+      try{if(sessionStorage.getItem('camstudy_guide_seen_session'))return;if(document.getElementById('camstudy-first-guide-modal'))return;
+      const modal=document.createElement('div');modal.id='camstudy-first-guide-modal';modal.className='modal-overlay active';modal.style.zIndex='100002';
+      const logo=document.querySelector('.camstudy-brand-logo')?.src||'';
+      modal.innerHTML=`<div class="modal-body" role="dialog" aria-modal="true" aria-labelledby="camstudy-guide-title" style="max-width:500px"><div style="text-align:center;margin-bottom:12px"><img src="${logo}" alt="Logo CAMSTUDY" style="width:70px;height:70px;object-fit:contain;background:#fff;border-radius:14px;padding:4px"></div><h3 id="camstudy-guide-title" style="text-align:center">Panduan Singkat CAMSTUDY</h3><p style="line-height:1.7">Siswa: masukkan username (JANGAN MEMASUKKAN NAMA LENGKAP). Disarankan menggunakan nama panggilan atau nama samaran. Jangan masukkan informasi pribadi, lalu tekan Masuk. Guru: pilih Dashboard Guru dan masukkan nama pengguna serta password yang dikelola di server. Jangan bagikan password guru.</p><button class="btn btn-primary" style="width:100%" id="camstudy-guide-close">Mengerti, mulai</button></div>`;
+      document.body.appendChild(modal);modal.querySelector('#camstudy-guide-close').addEventListener('click',()=>{modal.remove();sessionStorage.setItem('camstudy_guide_seen_session','1')});
+      }catch(e){console.warn('Panduan CAMSTUDY:',e)}
+    }
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showCamstudyWelcomeGuide,{once:true});else setTimeout(showCamstudyWelcomeGuide,250);
+</script>
+<script>
+(function(){
+ const semLabels={kelas10_s1:'LATIHAN • KELAS 10 SEMESTER 1',kelas10_s2:'LATIHAN • KELAS 10 SEMESTER 2',kelas11_s1:'LATIHAN • KELAS 11 SEMESTER 1',kelas11_s2:'LATIHAN • KELAS 11 SEMESTER 2',kelas12_s1:'LATIHAN • KELAS 12 SEMESTER 1',kelas12_s2:'LATIHAN • KELAS 12 SEMESTER 2'};
+ const defaultIcons={kelas10_s1:'📘',kelas10_s2:'🧠',kelas11_s1:'🧮',kelas11_s2:'💻',kelas12_s1:'🔬',kelas12_s2:'🗺️'};
+ const iconChoices=['📘','📚','🧠','✏️','🎯','💻','🔬','🧮','🌐','⭐','📝','📐','🧪','🗺️','🏆','🎓'];
+ function getIcons(){let local={};try{local=JSON.parse(localStorage.getItem('camstudy_semester_icons_v1')||'{}')||{};}catch(e){}let shared={};try{const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:[];shared=arr.find(x=>x&&x.semesterIcons&&typeof x.semesterIcons==='object')?.semesterIcons||{};}catch(e){}return Object.assign({},defaultIcons,local,shared);}
+ window.getCamstudySemesterIcons=getIcons;
+ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+ window.clearDedicatedMaterial=function(){['material-title','material-teacher','material-content','material-file'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});dedicatedMaterialEditingId=null;const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Materi';};
+ window.editDedicatedMaterial=function(id){const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:[];const m=arr.find(x=>String(x.id)===String(id));if(!m)return alert('Materi tidak ditemukan.');dedicatedMaterialEditingId=m.id;window.refreshDedicatedMaterialSubjects();const set=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v??'';};set('material-subject',m.subjectId||'');set('material-semester',m.semester||'kelas10_s1');set('material-title',m.title||'');set('material-teacher',m.teacher||'');set('material-content',m.description||'');set('material-file','');const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';const st=document.getElementById('material-save-status');if(st)st.textContent='Mode edit aktif. Lampiran lama akan dipertahankan jika tidak memilih file baru.';document.getElementById('material-title')?.scrollIntoView({behavior:'smooth',block:'center'});};
+ window.refreshDedicatedMaterialSubjects=function(){const sel=document.getElementById('material-subject');if(!sel)return;const old=sel.value;const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:(Array.isArray(window.subjects)?window.subjects:[]);sel.innerHTML='<option value="">Pilih mata pelajaran</option>'+arr.map(x=>{const name=x.name||x.title||x.subject||'Mapel';const id=x.id||x.subjectId||name;const icon=typeof subjectEmoji==='function'?subjectEmoji(x.icon,name):(x.icon||'📘');return `<option value="${esc(id)}">${esc(icon)} ${esc(name)}</option>`;}).join('');if(old)sel.value=old;};
+ function renderSavedMaterials(){const box=document.getElementById('dedicated-material-list');if(!box)return;const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:(Array.isArray(window.teacherMaterials)?window.teacherMaterials:[]);box.innerHTML='<h3>Materi yang sudah ditambahkan</h3>'+(arr.length?arr.slice().reverse().map(m=>`<article class="glass-panel" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px;margin:10px 0"><div><strong>${esc(m.title)}</strong><p>${esc(m.subject||'Mapel')} • ${esc(semLabels[m.semester]||m.semester||'')}</p><p>Guru: ${esc(m.teacher||'Guru')}</p><p style="white-space:pre-wrap">${esc(m.description||'')}</p>${m.fileData?`<a href="${m.fileData}" download="${esc(m.fileName||'materi')}">Buka/unduh ${esc(m.fileName||'dokumen')}</a>`:''}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" onclick="editDedicatedMaterial('${m.id}')"><i class="fa-solid fa-pen"></i> Edit materi</button><button type="button" class="btn btn-danger" onclick="deleteTeacherTask('${m.id}','material')"><i class="fa-solid fa-trash"></i> Hapus materi</button></div></article>`).join(''):'<p>Belum ada materi tersimpan.</p>');}
+ window.renderSavedMaterials=renderSavedMaterials;
+ window.saveDedicatedMaterial=function(){
+  const subjectSel=document.getElementById('material-subject'),sem=document.getElementById('material-semester'),title=document.getElementById('material-title'),teacher=document.getElementById('material-teacher'),content=document.getElementById('material-content'),fileInput=document.getElementById('material-file'),status=document.getElementById('material-save-status');
+  const subjectId=subjectSel?.value;const subject=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects.find(x=>String(x.id||x.subjectId||x.name)===String(subjectId)):null;const subjectName=subject?.name||subjectSel?.selectedOptions?.[0]?.textContent?.replace(/^\S+\s+/,'')||'';
+  if(!subjectId||!title?.value.trim()||!content?.value.trim()){alert('Pilih mata pelajaran dan isi judul serta materi terlebih dahulu.');return;}
   const finish=(fileData='',fileName='')=>{try{if(typeof teacherMaterials==='undefined'||!Array.isArray(teacherMaterials))window.teacherMaterials=[];const mats=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:window.teacherMaterials;const existing=dedicatedMaterialEditingId?mats.find(x=>String(x.id)===String(dedicatedMaterialEditingId)):null;const record={...(existing||{}),id:existing?existing.id:'material_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),kind:'material',subjectId,subject:subjectName,semester:sem.value,title:title.value.trim(),teacher:teacher.value.trim()||((typeof currentTeacher!=='undefined'&&(currentTeacher?.displayName||currentTeacher?.username))||'Guru'),author:teacher.value.trim()||'Guru',description:content.value.trim(),instructions:existing?.instructions||'',fileData:fileData||existing?.fileData||'',fileName:fileName||existing?.fileName||'',createdAt:existing?.createdAt||Date.now(),updatedAt:Date.now()};if(existing){const idx=mats.findIndex(x=>x.id===existing.id);mats[idx]=record;}else mats.push(record);if(typeof saveTaskCollections==='function')saveTaskCollections();else localStorage.setItem('asts_materials_v1',JSON.stringify(mats));if(typeof renderTeacherTasks==='function')renderTeacherTasks();if(typeof renderStudentTasks==='function')renderStudentTasks();renderSavedMaterials();window.clearDedicatedMaterial();if(status)status.textContent=existing?'Perubahan materi berhasil disimpan dan masuk antrean server.':'Materi berhasil disimpan dan masuk antrean server.';alert(existing?'Perubahan materi berhasil disimpan dan disinkronkan.':'Materi berhasil disimpan dan disinkronkan.');}catch(e){console.error('Gagal menyimpan materi CAMSTUDY:',e);alert('Materi belum berhasil disimpan: '+(e.message||'kesalahan penyimpanan'));}};
   const f=fileInput?.files?.[0];if(f){if(f.size>5*1024*1024){alert('Ukuran lampiran maksimal 5 MB.');return;}const rd=new FileReader();rd.onload=()=>finish(String(rd.result||''),f.name);rd.onerror=()=>alert('File tidak dapat dibaca. Coba pilih file lain.');rd.readAsDataURL(f);}else finish();
  };
