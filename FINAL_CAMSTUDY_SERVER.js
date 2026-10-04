@@ -85,6 +85,10 @@ function mergeData(name, incoming) {
     return merged.map(u => ({ ...u, totalViolations: maxViolations.get(normalizeName(u.name)) || 0 }));
   }
   if (name === 'results') return mergeRecords(db.results && db.results.data, incoming, resultKey);
+  if (name === 'tasks' || name === 'materials' || name === 'submissions') {
+    const oldList = Array.isArray(db[name] && db[name].data) ? db[name].data : [];
+    return mergeRecords(oldList, incoming, item => String(item && item.id || ''));
+  }
   return incoming;
 }
 function persist() {

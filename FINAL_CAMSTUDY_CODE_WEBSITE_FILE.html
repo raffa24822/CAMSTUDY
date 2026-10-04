@@ -529,7 +529,7 @@
 @media(prefers-reduced-motion:reduce){.medal-levelup-card,.medal-levelup-card .medal-burst{animation:none!important}}
 
 /* Background logo rekap nilai: kotak berlapis yang tampak jelas */
-.rekap-nilai-logo,.grade-recap-logo,.student-results-logo{display:inline-grid!important;place-items:center!important;background:#dbeafe!important;padding:8px!important;border:7px solid #64748b!important;box-shadow:0 0 0 5px #334155,0 8px 20px #0002!important;border-radius:12px!important;object-fit:contain!important}
+.rekap-nilai-logo,.grade-recap-logo,.student-results-logo{display:inline-grid!important;place-items:center!important;background:#dbeafe!important;padding:8px!important;border:7px solid #64748b!important;box-shadow:0 0 0 5px #334155,0 8px 20px #0002!important;border-radius:12px!important;object-fit:contain!important}.medal-shape{width:86px;height:86px;display:grid;place-items:center;font-size:38px;font-weight:900;margin:0 auto 10px;border:5px solid #334155;background:#f8fafc;box-shadow:0 7px 18px #0003}.medal-circle{border-radius:50%}.medal-shield{clip-path:polygon(50% 0,92% 16%,86% 70%,50% 100%,14% 70%,8% 16%);border-radius:16px}.medal-hex{clip-path:polygon(25% 4%,75% 4%,98% 50%,75% 96%,25% 96%,2% 50%);border-radius:12px}.medal-diamond{transform:rotate(45deg);border-radius:12px}.medal-star{clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 94%,50% 72%,21% 94%,32% 57%,2% 35%,39% 35%)}.medal-ribbon{border-radius:16px 16px 28px 28px;position:relative}.medal-ribbon:after{content:"";position:absolute;left:17px;right:17px;bottom:-25px;height:28px;background:#64748b;clip-path:polygon(0 0,45% 0,50% 100%,0 72%,55% 0,100% 0,100% 72%,50% 100%);opacity:.9}
 </style></head>
 <body>
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#0b0f19;color:#fff;padding:30px;text-align:center;z-index:99999;font-family:Arial,sans-serif">JavaScript harus diaktifkan untuk menjalankan CAMSTUDY.</div></noscript>
@@ -1188,6 +1188,7 @@ let audioCtx = null;
         } catch (_) {}
     }
     if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded',()=>setCamstudyHistoryTitle('screen-login',false),{once:true});
         document.addEventListener('DOMContentLoaded', startFooterClock, { once: true });
     } else {
         startFooterClock();
@@ -1362,9 +1363,9 @@ let audioCtx = null;
                 if(JSON.stringify(results)!==JSON.stringify(merged))changed=true;
                 results=merged; safeSetJSON('asts_res_v4',results);
             }
-            if(taskR&&Array.isArray(taskR.data)){if(JSON.stringify(teacherTasks)!==JSON.stringify(taskR.data))changed=true;teacherTasks=taskR.data;safeSetJSON('asts_tasks_v1',teacherTasks);}
-            if(matR&&Array.isArray(matR.data)){if(JSON.stringify(teacherMaterials)!==JSON.stringify(matR.data))changed=true;teacherMaterials=matR.data;safeSetJSON('asts_materials_v1',teacherMaterials);}
-            if(submR&&Array.isArray(submR.data)){if(JSON.stringify(taskSubmissions)!==JSON.stringify(submR.data))changed=true;taskSubmissions=submR.data;safeSetJSON('asts_submissions_v1',taskSubmissions);}
+            if(taskR&&Array.isArray(taskR.data)){const mergedTasks=mergeByKey(teacherTasks,taskR.data,x=>String(x.id||''),'updatedAt');if(stableSerializeRecords(mergedTasks,x=>String(x.id||''))!==stableSerializeRecords(taskR.data,x=>String(x.id||'')))cloudPush('tasks',mergedTasks);if(JSON.stringify(teacherTasks)!==JSON.stringify(mergedTasks))changed=true;teacherTasks=mergedTasks;safeSetJSON('asts_tasks_v1',teacherTasks);}
+            if(matR&&Array.isArray(matR.data)){const mergedMaterials=mergeByKey(teacherMaterials,matR.data,x=>String(x.id||''),'updatedAt');if(stableSerializeRecords(mergedMaterials,x=>String(x.id||''))!==stableSerializeRecords(matR.data,x=>String(x.id||'')))cloudPush('materials',mergedMaterials);if(JSON.stringify(teacherMaterials)!==JSON.stringify(mergedMaterials))changed=true;teacherMaterials=mergedMaterials;safeSetJSON('asts_materials_v1',teacherMaterials);}
+            if(submR&&Array.isArray(submR.data)){const mergedSubmissions=mergeByKey(taskSubmissions,submR.data,x=>String(x.id||''),'updatedAt');if(stableSerializeRecords(mergedSubmissions,x=>String(x.id||''))!==stableSerializeRecords(submR.data,x=>String(x.id||'')))cloudPush('submissions',mergedSubmissions);if(JSON.stringify(taskSubmissions)!==JSON.stringify(mergedSubmissions))changed=true;taskSubmissions=mergedSubmissions;safeSetJSON('asts_submissions_v1',taskSubmissions);}
             if(currentStudent){const fresh=studentAccounts.find(u=>String(u.name).trim().toLowerCase()===String(currentStudent.name).trim().toLowerCase());if(fresh)currentStudent=fresh;}
             if(changed){
                 const screen=document.getElementById('screen-dashboard-guru');
@@ -1499,11 +1500,16 @@ let audioCtx = null;
     function saveSubjects() { safeSetJSON('asts_subj_v4', subjects); broadcastLiveSync('subjects'); cloudPush('subjects', subjects); }
     function saveResults() { safeSetJSON('asts_res_v4', results); broadcastLiveSync('results'); cloudPush('results', results); }
     function saveUsers() { const now=Date.now(); if(currentStudent){ const u=studentAccounts.find(x=>String(x.name).trim().toLowerCase()===String(currentStudent.name).trim().toLowerCase()); if(u){u.updatedAt=now; currentStudent=u;} } studentAccounts.forEach(u=>{if(!u.updatedAt)u.updatedAt=now;}); safeSetJSON('asts_users_v4', studentAccounts); broadcastLiveSync('users'); cloudPush('users', studentAccounts); }
-    function showScreen(screenId) {
+    const CAMSTUDY_SCREEN_TITLES={"screen-login":"CAMSTUDY-LOGIN/REGISTRASI","screen-dashboard-siswa":"CAMSTUDY-DASHBOARD-SISWA","screen-dashboard-guru":"CAMSTUDY-DASHBOARD-GURU","screen-quiz":"CAMSTUDY-QUIZ","screen-result":"CAMSTUDY-HASIL-NILAI"};
+    let camstudyHistoryReady=false;
+    function setCamstudyHistoryTitle(screenId,push=true){const title=CAMSTUDY_SCREEN_TITLES[screenId]||"CAMSTUDY";document.title=title;try{const state={...(history.state||{}),camstudyScreen:screenId};if(push&&camstudyHistoryReady&&history.state?.camstudyScreen!==screenId)history.pushState(state,"",location.href.split("#")[0]+"#"+encodeURIComponent(screenId));else history.replaceState(state,"",location.href.split("#")[0]+"#"+encodeURIComponent(screenId));}catch(_){} }
+    function showScreen(screenId,historyPush=true) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-        document.getElementById(screenId).classList.add('active');
+        const target=document.getElementById(screenId);if(target)target.classList.add('active');
+        setCamstudyHistoryTitle(screenId,historyPush);camstudyHistoryReady=true;
         if(currentStudent&&!document.hidden){if(screenId==='screen-dashboard-siswa' && currentStudent.readiness!=='Selesai mengerjakan' && currentStudent.readiness!=='Selesai Mengerjakan'){currentStudent.readiness='Siap mengerjakan';}currentStudent.isOnline=true;currentStudent.lastSeen=Date.now();currentStudent.updatedAt=Date.now();saveUsers();}
     }
+    window.addEventListener('popstate',()=>{const screen=history.state?.camstudyScreen||decodeURIComponent(location.hash.replace(/^#/,''));if(CAMSTUDY_SCREEN_TITLES[screen])showScreen(screen,false);});
     function switchRole(role) {
         playClickSound();
         document.getElementById('btn-role-siswa').classList.toggle('active', role === 'siswa');
@@ -1570,7 +1576,7 @@ let audioCtx = null;
                 <div class="medal-levelup-kicker">QUIZ SELESAI • HADIAH UNTUKMU</div>
                 <h2 id="medal-levelup-title">MEDALI BERHASIL DIDAPATKAN!</h2>
                 <p id="medal-levelup-desc"></p>
-                <button class="btn btn-success" style="width:100%;margin-top:18px" onclick="document.getElementById('medal-levelup-modal').classList.remove('active')">Ambil Medali & Lanjutkan</button>
+                <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="shareMedalCard()"><i class="fa-solid fa-share-nodes"></i> Bagikan Medali</button><button class="btn btn-success" style="width:100%;margin-top:10px" onclick="document.getElementById('medal-levelup-modal').classList.remove('active')">Ambil Medali & Lanjutkan</button>
             </div>`;
             document.body.appendChild(modal);
         }
@@ -1582,7 +1588,7 @@ let audioCtx = null;
         if (desc) desc.textContent = `${info.icon || '🏅'} ${info.title || 'Pelajar Aktif'} — ${info.medal || 'Medali Partisipasi'}. Kamu telah menyelesaikan quiz dan total ${Number(info.questions) || 0} soal!`;
         modal.classList.remove('active');
         const burst = modal.querySelector('.medal-burst');
-        if (burst) { burst.style.animation = 'none'; void burst.offsetWidth; burst.style.animation = ''; }
+        if (burst) { const shapes=['medal-circle','medal-shield','medal-hex','medal-diamond','medal-star','medal-ribbon']; burst.className='medal-burst medal-shape '+shapes[(Math.max(1,Number(info.level)||1)-1)%shapes.length]; burst.textContent=info.icon||'🏅'; burst.style.animation='none'; void burst.offsetWidth; burst.style.animation=''; }
         void modal.offsetWidth;
         modal.classList.add('active');
         try { if (typeof confetti === 'function') confetti({ particleCount: 140, spread: 85, origin: { y: .55 } }); } catch (_) {}
@@ -1948,6 +1954,7 @@ let audioCtx = null;
         else{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='hasil-camstudy.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);alert('Kartu hasil diunduh sebagai gambar. Kamu bisa membagikannya lewat WhatsApp, Facebook, atau Instagram.');}
       }catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan kartu hasil: '+(e.message||'coba lagi'));}
     }
+    async function shareMedalCard(){try{const info=getRankInfo(Array.isArray(currentStudent?.completedSubjects)?currentStudent.completedSubjects.length:0),name=String(currentStudent?.name||'Siswa'),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const ctx=canvas.getContext('2d');const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#f8fafc');grad.addColorStop(1,'#dbeafe');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 58px Arial';ctx.fillText('CAMSTUDY',540,130);ctx.font='bold 34px Arial';ctx.fillText('SERTIFIKAT PENGHARGAAN',540,190);ctx.fillStyle='#fff';roundRect(ctx,90,250,900,860,42);ctx.fill();ctx.strokeStyle='#334155';ctx.lineWidth=5;ctx.stroke();ctx.fillStyle='#e2e8f0';ctx.strokeStyle='#334155';ctx.lineWidth=10;ctx.beginPath();ctx.arc(540,460,125,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#0f172a';ctx.font='bold 50px Arial';ctx.fillText(name.slice(0,32),540,730);ctx.font='bold 42px Arial';ctx.fillText(info.title||'Pelajar Aktif',540,805);ctx.font='30px Arial';ctx.fillStyle='#475569';ctx.fillText(info.medal||'Penghargaan CAMSTUDY',540,860);ctx.font='28px Arial';ctx.fillText('Level '+String(info.level||0)+' • '+String(info.subjects||0)+' mapel selesai',540,925);ctx.fillText(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}),540,990);ctx.fillStyle='#164e83';ctx.font='bold 28px Arial';ctx.fillText('CAMSTUDY • Belajar, berkembang, berprestasi.',540,1055);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('Gambar medali tidak dapat dibuat.');const file=new File([blob],'medali-camstudy.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[file]}))await navigator.share({files:[file],title:'Medali CAMSTUDY',text:'Saya mendapatkan penghargaan di CAMSTUDY!'});else{const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='medali-camstudy.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);alert('Kartu medali diunduh sebagai gambar dan siap dibagikan.');}}catch(e){if(e?.name!=='AbortError')alert('Gagal membagikan medali: '+(e.message||'coba lagi'));}}
     function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
     function returnToStudentDashboard() {
         playClickSound();
@@ -2324,7 +2331,7 @@ let audioCtx = null;
         const img=document.getElementById('q-image');if(img)img.value='';
         document.getElementById('q-exp').value = '';
         const title=document.querySelector('#modal-add-question h3');if(title)title.innerHTML='<i class="fa-solid fa-file-circle-plus"></i> Tambah Soal Baru';
-        const saveBtn=document.querySelector('#modal-add-question .btn.btn-success');if(saveBtn)saveBtn.textContent='Simpan Soal';
+        const saveBtn=document.querySelector('#modal-add-question button[onclick="saveQuestion()"]');if(saveBtn)saveBtn.textContent='Simpan Soal';
     }
     function openModalAddQuestion() {
         editingQuestionIndex=null;editingQuestionSubjectId=null;
@@ -2341,63 +2348,21 @@ let audioCtx = null;
         document.querySelectorAll('.q-correct-check').forEach(c=>c.checked=(Array.isArray(q.answer)?q.answer:[q.answer]).map(Number).includes(Number(c.value)));
         document.getElementById('q-exp').value=q.exp||'';const image=document.getElementById('q-image');if(image)image.value='';
         const title=document.querySelector('#modal-add-question h3');if(title)title.innerHTML='<i class="fa-solid fa-pen-to-square"></i> Edit Soal';
-        const saveBtn=document.querySelector('#modal-add-question .btn.btn-success');if(saveBtn)saveBtn.textContent='Simpan Perubahan';
+        const saveBtn=document.querySelector('#modal-add-question button[onclick="saveQuestion()"]');if(saveBtn)saveBtn.textContent='Simpan Perubahan';
         document.getElementById('modal-add-question').classList.add('active');setTimeout(()=>document.getElementById('q-text').focus(),50);
     }
     function closeModalAddQuestion() {
         resetQuestionForm();
         document.getElementById('modal-add-question').classList.remove('active');
     }
-    function saveQuestion() {
-        const selectId = document.getElementById('select-subject-manage').value;
-        const subj = subjects.find(s => s.id === selectId);
-        if (!subj) return alert('Pilih mapel terlebih dahulu!');
-        const q = document.getElementById('q-text').value.trim();
-        const opts = [
-            document.getElementById('q-opt-0').value.trim(),
-            document.getElementById('q-opt-1').value.trim(),
-            document.getElementById('q-opt-2').value.trim(),
-            document.getElementById('q-opt-3').value.trim()
-        ];
-        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value));
-        const correct=selectedCorrect.length>1?selectedCorrect:(selectedCorrect.length===1?selectedCorrect[0]:0);
-        const imageFile=document.getElementById('q-image')?.files?.[0];
-        const exp = document.getElementById('q-exp').value.trim();
-        if (!q || opts.some(o => !o)) {
-            alert('Harap isi pertanyaan dan semua pilihan jawaban!');
-            return;
-        }
-        const saveQ=(image)=>{
-            const qset=getQuestionSet(subj,activeManageSemester,true);
-            const existing=(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id)?qset[editingQuestionIndex]:null;
-            const record={...(existing||{}),q,options:opts,answer:correct,exp,image:image||'',type:existing?.type||'choice',updatedAt:Date.now()};
-            if(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id&&qset[editingQuestionIndex]){qset[editingQuestionIndex]=record;alert('Perubahan soal berhasil disimpan.');}
-            else{qset.push({...record,createdAt:Date.now()});alert('Soal berhasil ditambahkan.');}
-            editingQuestionIndex=null;editingQuestionSubjectId=null;
-            saveSubjects();
-            resetQuestionForm();
-            closeModalAddQuestion();
-            populateSubjectSelect(subj.id);
-            renderQuestionManager();
-            renderTeacherSubjectTable();
-            switchTeacherTab('tab-bank-soal',document.querySelector('.teacher-tabs .tab-btn[onclick*="tab-bank-soal"]'));
-            renderStudentDashboardIfVisible();
-        };
-        if(imageFile){if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');const reader=new FileReader();reader.onload=()=>saveQ(String(reader.result));reader.readAsDataURL(imageFile);return;}
-        const existing=(editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id)?(getQuestionSet(subj,activeManageSemester)[editingQuestionIndex]?.image||''):'';
-        saveQ(existing);
-        /* save handled above */
-        /* legacy close code intentionally skipped */
-        /*
-        saveSubjects();
-        resetQuestionForm();
-        closeModalAddQuestion();
-        populateSubjectSelect(subj.id);
-        renderQuestionManager();
-        renderTeacherSubjectTable();
-        switchTeacherTab('tab-bank-soal', document.querySelector('.teacher-tabs .tab-btn[onclick*="tab-bank-soal"]'));
-        renderStudentDashboardIfVisible();
-        */
+    async function saveQuestion() {
+        const selectId=document.getElementById('select-subject-manage')?.value,subj=subjects.find(s=>s.id===selectId);if(!subj)return alert('Pilih mapel terlebih dahulu!');
+        const q=document.getElementById('q-text').value.trim(),opts=[0,1,2,3].map(i=>document.getElementById('q-opt-'+i).value.trim());
+        const selectedCorrect=[...document.querySelectorAll('.q-correct-check:checked')].map(c=>Number(c.value)).filter(n=>Number.isInteger(n)&&n>=0&&n<=3),exp=document.getElementById('q-exp').value.trim();
+        if(!q||opts.some(o=>!o))return alert('Harap isi pertanyaan dan semua pilihan jawaban!');if(!selectedCorrect.length)return alert('Pilih minimal satu kunci jawaban.');
+        const qset=getQuestionSet(subj,activeManageSemester,true),isEditing=editingQuestionIndex!==null&&editingQuestionSubjectId===subj.id&&!!qset[editingQuestionIndex],existing=isEditing?qset[editingQuestionIndex]:null;
+        const saveRecord=image=>{const record={...(existing||{}),q,options:opts,answer:selectedCorrect.length>1?selectedCorrect:selectedCorrect[0],exp,image:image||existing?.image||'',type:existing?.type==='multiple'?'multiple':'choice',updatedAt:Date.now()};if(isEditing)qset[editingQuestionIndex]=record;else qset.push({...record,createdAt:Date.now()});saveSubjects();editingQuestionIndex=null;editingQuestionSubjectId=null;resetQuestionForm();closeModalAddQuestion();populateSubjectSelect(subj.id);renderQuestionManager();renderTeacherSubjectTable();renderStudentDashboardIfVisible();alert(isEditing?'Perubahan soal berhasil disimpan dan disinkronkan.':'Soal berhasil ditambahkan dan disinkronkan.');};
+        const imageFile=document.getElementById('q-image')?.files?.[0];if(imageFile){if(imageFile.size>1500000)return alert('Foto soal maksimal 1,5 MB.');const reader=new FileReader();reader.onload=()=>saveRecord(String(reader.result||''));reader.onerror=()=>alert('Foto soal gagal dibaca.');reader.readAsDataURL(imageFile);return;}saveRecord(existing?.image||'');
     }
     function setupQuestionFormEnterNavigation() {
         const moveOnEnter = (fields, submitAtEnd = null) => {
@@ -2782,7 +2747,7 @@ let audioCtx = null;
  function getIcons(){let local={};try{local=JSON.parse(localStorage.getItem('camstudy_semester_icons_v1')||'{}')||{};}catch(e){}let shared={};try{const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:[];shared=arr.find(x=>x&&x.semesterIcons&&typeof x.semesterIcons==='object')?.semesterIcons||{};}catch(e){}return Object.assign({},defaultIcons,local,shared);}
  window.getCamstudySemesterIcons=getIcons;
  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
- window.clearDedicatedMaterial=function(){['material-title','material-teacher','material-content','material-file'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});dedicatedMaterialEditingId=null;const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Materi';const status=document.getElementById('material-save-status');if(status)status.textContent='';};
+ window.clearDedicatedMaterial=function(){['material-title','material-teacher','material-content','material-file'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});dedicatedMaterialEditingId=null;const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Materi';};
  window.editDedicatedMaterial=function(id){const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:[];const m=arr.find(x=>String(x.id)===String(id));if(!m)return alert('Materi tidak ditemukan.');dedicatedMaterialEditingId=m.id;window.refreshDedicatedMaterialSubjects();const set=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v??'';};set('material-subject',m.subjectId||'');set('material-semester',m.semester||'kelas10_s1');set('material-title',m.title||'');set('material-teacher',m.teacher||'');set('material-content',m.description||'');set('material-file','');const btn=document.querySelector('button[onclick="saveDedicatedMaterial()"]');if(btn)btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';const st=document.getElementById('material-save-status');if(st)st.textContent='Mode edit aktif. Lampiran lama akan dipertahankan jika tidak memilih file baru.';document.getElementById('material-title')?.scrollIntoView({behavior:'smooth',block:'center'});};
  window.refreshDedicatedMaterialSubjects=function(){const sel=document.getElementById('material-subject');if(!sel)return;const old=sel.value;const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:(Array.isArray(window.subjects)?window.subjects:[]);sel.innerHTML='<option value="">Pilih mata pelajaran</option>'+arr.map(x=>{const name=x.name||x.title||x.subject||'Mapel';const id=x.id||x.subjectId||name;const icon=typeof subjectEmoji==='function'?subjectEmoji(x.icon,name):(x.icon||'📘');return `<option value="${esc(id)}">${esc(icon)} ${esc(name)}</option>`;}).join('');if(old)sel.value=old;};
  function renderSavedMaterials(){const box=document.getElementById('dedicated-material-list');if(!box)return;const arr=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:(Array.isArray(window.teacherMaterials)?window.teacherMaterials:[]);box.innerHTML='<h3>Materi yang sudah ditambahkan</h3>'+(arr.length?arr.slice().reverse().map(m=>`<article class="glass-panel" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px;margin:10px 0"><div><strong>${esc(m.title)}</strong><p>${esc(m.subject||'Mapel')} • ${esc(semLabels[m.semester]||m.semester||'')}</p><p>Guru: ${esc(m.teacher||'Guru')}</p><p style="white-space:pre-wrap">${esc(m.description||'')}</p>${m.fileData?`<a href="${m.fileData}" download="${esc(m.fileName||'materi')}">Buka/unduh ${esc(m.fileName||'dokumen')}</a>`:''}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" onclick="editDedicatedMaterial('${m.id}')"><i class="fa-solid fa-pen"></i> Edit materi</button><button type="button" class="btn btn-danger" onclick="deleteTeacherTask('${m.id}','material')"><i class="fa-solid fa-trash"></i> Hapus materi</button></div></article>`).join(''):'<p>Belum ada materi tersimpan.</p>');}
@@ -2791,7 +2756,7 @@ let audioCtx = null;
   const subjectSel=document.getElementById('material-subject'),sem=document.getElementById('material-semester'),title=document.getElementById('material-title'),teacher=document.getElementById('material-teacher'),content=document.getElementById('material-content'),fileInput=document.getElementById('material-file'),status=document.getElementById('material-save-status');
   const subjectId=subjectSel?.value;const subject=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects.find(x=>String(x.id||x.subjectId||x.name)===String(subjectId)):null;const subjectName=subject?.name||subjectSel?.selectedOptions?.[0]?.textContent?.replace(/^\S+\s+/,'')||'';
   if(!subjectId||!title?.value.trim()||!content?.value.trim()){alert('Pilih mata pelajaran dan isi judul serta materi terlebih dahulu.');return;}
-  const finish=(fileData='',fileName='')=>{try{if(typeof teacherMaterials==='undefined'||!Array.isArray(teacherMaterials))window.teacherMaterials=[];const mats=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:window.teacherMaterials;const existing=dedicatedMaterialEditingId?mats.find(x=>String(x.id)===String(dedicatedMaterialEditingId)):null;const record={...(existing||{}),id:existing?existing.id:'material_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),kind:'material',subjectId,subject:subjectName,semester:sem.value,title:title.value.trim(),teacher:teacher.value.trim()||((typeof currentTeacher!=='undefined'&&(currentTeacher?.displayName||currentTeacher?.username))||'Guru'),author:teacher.value.trim()||'Guru',description:content.value.trim(),instructions:existing?.instructions||'',fileData:fileData||existing?.fileData||'',fileName:fileName||existing?.fileName||'',createdAt:existing?.createdAt||Date.now(),updatedAt:Date.now()};if(existing){const idx=mats.findIndex(x=>x.id===existing.id);mats[idx]=record;}else mats.push(record);if(typeof saveTaskCollections==='function')saveTaskCollections();else localStorage.setItem('asts_materials_v1',JSON.stringify(mats));if(typeof renderTeacherTasks==='function')renderTeacherTasks();if(typeof renderStudentTasks==='function')renderStudentTasks();renderSavedMaterials();window.clearDedicatedMaterial();if(status)status.textContent='Materi tersimpan dan daftar diperbarui.';alert(existing?'Perubahan materi berhasil disimpan.':'Materi berhasil disimpan. Periksa daftar materi dan dashboard siswa.');}catch(e){console.error('Gagal menyimpan materi CAMSTUDY:',e);alert('Materi belum berhasil disimpan: '+(e.message||'kesalahan penyimpanan'));}};
+  const finish=(fileData='',fileName='')=>{try{if(typeof teacherMaterials==='undefined'||!Array.isArray(teacherMaterials))window.teacherMaterials=[];const mats=typeof teacherMaterials!=='undefined'&&Array.isArray(teacherMaterials)?teacherMaterials:window.teacherMaterials;const existing=dedicatedMaterialEditingId?mats.find(x=>String(x.id)===String(dedicatedMaterialEditingId)):null;const record={...(existing||{}),id:existing?existing.id:'material_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),kind:'material',subjectId,subject:subjectName,semester:sem.value,title:title.value.trim(),teacher:teacher.value.trim()||((typeof currentTeacher!=='undefined'&&(currentTeacher?.displayName||currentTeacher?.username))||'Guru'),author:teacher.value.trim()||'Guru',description:content.value.trim(),instructions:existing?.instructions||'',fileData:fileData||existing?.fileData||'',fileName:fileName||existing?.fileName||'',createdAt:existing?.createdAt||Date.now(),updatedAt:Date.now()};if(existing){const idx=mats.findIndex(x=>x.id===existing.id);mats[idx]=record;}else mats.push(record);if(typeof saveTaskCollections==='function')saveTaskCollections();else localStorage.setItem('asts_materials_v1',JSON.stringify(mats));if(typeof renderTeacherTasks==='function')renderTeacherTasks();if(typeof renderStudentTasks==='function')renderStudentTasks();renderSavedMaterials();window.clearDedicatedMaterial();if(status)status.textContent=existing?'Perubahan materi berhasil disimpan dan masuk antrean server.':'Materi berhasil disimpan dan masuk antrean server.';alert(existing?'Perubahan materi berhasil disimpan dan disinkronkan.':'Materi berhasil disimpan dan disinkronkan.');}catch(e){console.error('Gagal menyimpan materi CAMSTUDY:',e);alert('Materi belum berhasil disimpan: '+(e.message||'kesalahan penyimpanan'));}};
   const f=fileInput?.files?.[0];if(f){if(f.size>5*1024*1024){alert('Ukuran lampiran maksimal 5 MB.');return;}const rd=new FileReader();rd.onload=()=>finish(String(rd.result||''),f.name);rd.onerror=()=>alert('File tidak dapat dibaca. Coba pilih file lain.');rd.readAsDataURL(f);}else finish();
  };
  function refreshSemesterSelectLabels(){const icons=getIcons();['material-semester','task-semester','ai-semester-select','manage-semester','student-material-semester'].forEach(id=>{const sel=document.getElementById(id);if(!sel)return;Array.from(sel.options).forEach(o=>{const k=o.value;if(!semLabels[k])return;const prefix=id==='material-semester'?'MATERI • KELAS '+k.match(/kelas(\d+)/)?.[1]+' SEMESTER '+(k.endsWith('_s1')?'1':'2'):id==='student-material-semester'||id==='task-semester'||id==='manage-semester'?'Kelas '+k.match(/kelas(\d+)/)?.[1]+' • Semester '+(k.endsWith('_s1')?'1':'2'):semLabels[k];o.textContent=(icons[k]||'📘')+' '+prefix;});});}
