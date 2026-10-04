@@ -1442,6 +1442,28 @@ let audioCtx = null;
 
     // Semua perangkat (guru maupun siswa) mengambil pembaruan dari server yang sama.
     setInterval(() => { if (!document.hidden && ASTS_CLOUD.databaseURL) cloudPull(); }, 4000);
+    // Urutan mapel disinkronkan khusus dan cepat agar perubahan guru langsung terlihat di dashboard siswa.
+    let liveSubjectSyncBusy = false;
+    setInterval(async () => {
+        if (document.hidden || !ASTS_CLOUD.databaseURL || liveSubjectSyncBusy) return;
+        liveSubjectSyncBusy = true;
+        try {
+            const remote = await cloudRequest('subjects');
+            if (remote && Array.isArray(remote.data)) {
+                const incoming = JSON.stringify(remote.data);
+                const current = JSON.stringify(subjects);
+                if (incoming !== current) {
+                    subjects = remote.data;
+                    safeSetJSON('asts_subj_v4', subjects);
+                    const studentScreen = document.getElementById('screen-dashboard-siswa');
+                    if (studentScreen && studentScreen.classList.contains('active')) renderStudentDashboard();
+                    const teacherScreen = document.getElementById('screen-dashboard-guru');
+                    if (teacherScreen && teacherScreen.classList.contains('active')) renderTeacherSubjectTable();
+                }
+            }
+        } catch (_) {}
+        finally { liveSubjectSyncBusy = false; }
+    }, 1000);
 
     setInterval(() => {
         if (currentStudent && currentStudent.isOnline) {
@@ -1492,22 +1514,39 @@ let audioCtx = null;
         showScreen('screen-login');
         document.getElementById('input-passcode-guru').value='';
     }
-    function getRankInfo(completedQuestionCount) {
-        const done = Math.max(0, Number(completedQuestionCount) || 0);
-        const level = Math.floor(done / 20) + 1;
+    function getRankInfo(completedSubjectCount) {
+        const done = Math.max(0, Number(completedSubjectCount) || 0);
         const tiers = [
-            { min: 100, title: 'Grandmaster Belajar', badgeClass: 'badge-gold', icon: '🏆', medal: 'Medali Berlian' },
-            { min: 60, title: 'Cendekia', badgeClass: 'badge-gold', icon: '💎', medal: 'Medali Platinum' },
-            { min: 40, title: 'Ahli', badgeClass: 'badge-gold', icon: '🥇', medal: 'Medali Emas' },
-            { min: 20, title: 'Berprestasi', badgeClass: 'badge-primary', icon: '🥈', medal: 'Medali Perak' },
-            { min: 0, title: 'Pelajar Aktif', badgeClass: 'badge-success', icon: '🥉', medal: 'Medali Perunggu' }
+            { level: 20, title: 'Cosmic Legend', badgeClass: 'badge-gold', icon: '🌌', medal: 'Medali Netherite / Cosmic Legend' },
+            { level: 19, title: 'Adamantium', badgeClass: 'badge-gold', icon: '🛡️', medal: 'Medali Adamantium' },
+            { level: 18, title: 'Mithril', badgeClass: 'badge-gold', icon: '⚔️', medal: 'Medali Mithril' },
+            { level: 17, title: 'Intan / Berlian', badgeClass: 'badge-gold', icon: '💎', medal: 'Medali Intan/Berlian' },
+            { level: 16, title: 'Rubi', badgeClass: 'badge-gold', icon: '♦️', medal: 'Medali Rubi' },
+            { level: 15, title: 'Zamrud', badgeClass: 'badge-gold', icon: '💚', medal: 'Medali Zamrud' },
+            { level: 14, title: 'Safir', badgeClass: 'badge-primary', icon: '🔷', medal: 'Medali Safir' },
+            { level: 13, title: 'Amethyst', badgeClass: 'badge-primary', icon: '🟣', medal: 'Medali Amethyst' },
+            { level: 12, title: 'Topaz', badgeClass: 'badge-warning', icon: '🟡', medal: 'Medali Topaz' },
+            { level: 11, title: 'Giok', badgeClass: 'badge-success', icon: '🟢', medal: 'Medali Giok' },
+            { level: 10, title: 'Kristal', badgeClass: 'badge-primary', icon: '🔮', medal: 'Medali Kristal' },
+            { level: 9, title: 'Obsidian', badgeClass: 'badge-secondary', icon: '⬛', medal: 'Medali Obsidian' },
+            { level: 8, title: 'Titanium', badgeClass: 'badge-secondary', icon: '⚙️', medal: 'Medali Titanium' },
+            { level: 7, title: 'Platina', badgeClass: 'badge-primary', icon: '🏵️', medal: 'Medali Platina' },
+            { level: 6, title: 'Emas', badgeClass: 'badge-gold', icon: '🥇', medal: 'Medali Emas' },
+            { level: 5, title: 'Perak', badgeClass: 'badge-primary', icon: '🥈', medal: 'Medali Perak' },
+            { level: 4, title: 'Baja', badgeClass: 'badge-secondary', icon: '🔩', medal: 'Medali Baja' },
+            { level: 3, title: 'Tembaga', badgeClass: 'badge-warning', icon: '🟠', medal: 'Medali Tembaga' },
+            { level: 2, title: 'Besi', badgeClass: 'badge-secondary', icon: '⚙️', medal: 'Medali Besi' },
+            { level: 1, title: 'Pelajar Aktif', badgeClass: 'badge-success', icon: '🥉', medal: 'Medali Perunggu' }
         ];
-        const tier = tiers.find(t => done >= t.min) || tiers[4];
-        const nextMilestone = (Math.floor(done / 20) + 1) * 20;
-        return { title: `Level ${level} • ${done ? tier.title : 'Siswa Pemula'}`, badgeClass: done ? tier.badgeClass : 'badge-secondary', icon: done ? tier.icon : '🎖️', medal: done ? tier.medal : 'Belum ada medali', progress: `${done} soal selesai · ${nextMilestone - done} soal menuju level berikutnya`, level, questions: done };
+        const tier = tiers.find(t => done >= t.level);
+        if (!tier) return { title: 'Siswa Pemula', badgeClass: 'badge-secondary', icon: '🎖️', medal: 'Belum ada medali', progress: `0 mapel selesai · 1 mapel menuju level berikutnya`, level: 0, subjects: 0, questions: Number(currentStudent?.completedQuestionCount)||0 };
+        const level = tier.level;
+        const next = Math.min(20, level + 1);
+        const remaining = level >= 20 ? 0 : Math.max(0, next - done);
+        return { title: `Level ${level} • ${tier.title}`, badgeClass: tier.badgeClass, icon: tier.icon, medal: tier.medal, progress: level >= 20 ? `${done} mapel selesai · LEVEL MAKSIMAL` : `${done} mapel selesai · ${remaining} mapel menuju level ${next}`, level, subjects: done, questions: Number(currentStudent?.completedQuestionCount)||0 };
     }
     function showMedalLevelUp(rankInfo) {
-        const info = rankInfo || getRankInfo(Number(currentStudent && currentStudent.completedQuestionCount) || 0);
+        const info = rankInfo || getRankInfo(Array.isArray(currentStudent?.completedSubjects) ? currentStudent.completedSubjects.length : 0);
         let modal = document.getElementById('medal-levelup-modal');
         if (!modal) {
             modal = document.createElement('div');
@@ -1543,11 +1582,13 @@ let audioCtx = null;
         playClickSound();
         let user=studentAccounts.find(u=>String(u.name).trim().toLowerCase()===name.toLowerCase());
         if(!user){
-            user={name, createdAt:Date.now(), avatar:selectedAvatar, completedSubjects:[], isOnline:true, readiness:'Siap Mengerjakan', totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
+            user={name, createdAt:Date.now(), avatar:selectedAvatar, completedSubjects:[], highestMedalLevel:0, isOnline:true, readiness:'Siap Mengerjakan', totalViolations:0,lastSeen:Date.now(),updatedAt:Date.now()};
             studentAccounts.push(user);
         }
         // PIN lama dihapus dari alur login; siswa cukup memakai nama.
         if(user.pin!==undefined) delete user.pin;
+        user.completedSubjects=Array.isArray(user.completedSubjects)?user.completedSubjects:[];
+        user.highestMedalLevel=Math.max(Number(user.highestMedalLevel)||0, Math.min(20,user.completedSubjects.length));
         user.isOnline=true;user.avatar=user.avatar||selectedAvatar;user.readiness='Siap Mengerjakan';user.updatedAt=Date.now();const attendanceDay=new Date().toLocaleDateString('en-CA');user.attendanceDates=Array.isArray(user.attendanceDates)?user.attendanceDates:[];if(!user.attendanceDates.includes(attendanceDay))user.attendanceDates.push(attendanceDay);user.attendanceDates=user.attendanceDates.slice(-180);
         currentStudent=user;currentTeacher=null;currentStudent.lastSeen=Date.now();
         sessionStorage.setItem('asts_active_role','siswa');sessionStorage.setItem('asts_active_student_name',user.name);sessionStorage.removeItem('asts_active_teacher_username');saveUsers();
@@ -1558,7 +1599,7 @@ let audioCtx = null;
     function updateStudentProfileUI() {
         document.getElementById('student-profile-name').innerText = currentStudent.name;const welcome=document.getElementById('student-welcome-name');if(welcome)welcome.textContent=currentStudent.name;
         document.getElementById('student-avatar-char').innerText = currentStudent.avatar || '🦊';
-        const count = Number(currentStudent.completedQuestionCount) || 0;
+        const count = Array.isArray(currentStudent.completedSubjects) ? currentStudent.completedSubjects.length : 0;
         const rank = getRankInfo(count);
         const rankBadge = document.getElementById('student-rank-badge');
         rankBadge.className = `rank-medal-badge ${rank.badgeClass}`;
@@ -1584,7 +1625,11 @@ let audioCtx = null;
     function renderStudentDashboard() {
         const grid = document.getElementById('student-subject-grid');
         grid.innerHTML = '';
-        subjects.filter(subj=>!document.getElementById('student-subject-search')?.value||subj.name.toLowerCase().includes(document.getElementById('student-subject-search').value.toLowerCase())).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'})).forEach(subj => {
+        subjects.filter(subj=>!document.getElementById('student-subject-search')?.value||subj.name.toLowerCase().includes(document.getElementById('student-subject-search').value.toLowerCase())).sort((a,b)=>{
+            const ap=Number.isFinite(Number(a.position))?Number(a.position):subjects.indexOf(a);
+            const bp=Number.isFinite(Number(b.position))?Number(b.position):subjects.indexOf(b);
+            return ap-bp;
+        }).forEach(subj => {
             const card = document.createElement('div');
             const isDone = currentStudent.completedSubjects.includes(subj.id);
             card.className = `subject-card ${subj.active ? 'active-card' : 'disabled-card'}`;
@@ -1742,15 +1787,18 @@ let audioCtx = null;
         const total = examQuestions.length || 1;
         const benar = examQuestions.reduce((n,q,i)=>{const a=examAnswers[i];if(q.type==='essay'||q.type==='short_answer')return n+(Number(a&&a.essayScore)||0);if(Array.isArray(q.answer))return n+(Array.isArray(a)&&JSON.stringify(a.slice().sort())===JSON.stringify(q.answer.map(Number).slice().sort())?1:0);return n+(a===q.answer?1:0);},0);
         score = Math.round((benar / total) * 100);
-        if (!currentStudent.completedSubjects.includes(currentSubject.id)) {
-            currentStudent.completedSubjects.push(currentSubject.id);
-        }
+        const subjectsBefore = Array.isArray(currentStudent.completedSubjects) ? currentStudent.completedSubjects.length : 0;
+        const isNewSubjectCompletion = !currentStudent.completedSubjects.includes(currentSubject.id);
+        if (isNewSubjectCompletion) currentStudent.completedSubjects.push(currentSubject.id);
         const questionsBefore = Math.max(0, Number(currentStudent.completedQuestionCount) || 0);
         currentStudent.completedQuestionCount = questionsBefore + total;
         currentStudent.completedQuizCount = Number(currentStudent.completedQuizCount ?? 0) + 1;
-        const oldLevel = Math.floor(questionsBefore / 20) + 1;
-        const newLevel = Math.floor(currentStudent.completedQuestionCount / 20) + 1;
-        const didLevelUp = newLevel > oldLevel || (questionsBefore < 20 && currentStudent.completedQuestionCount >= 20);
+        const newSubjectCount = currentStudent.completedSubjects.length;
+        const oldLevel = Math.min(20, subjectsBefore);
+        const newLevel = Math.min(20, newSubjectCount);
+        const previousMedalLevel = Math.min(20, Number(currentStudent.highestMedalLevel) || 0);
+        const didLevelUp = isNewSubjectCompletion && newLevel > previousMedalLevel;
+        if (newLevel > previousMedalLevel) currentStudent.highestMedalLevel = newLevel;
         currentStudent.readiness = 'Selesai mengerjakan';
         saveUsers();
         const examAnswerSnapshot = examQuestions.map((q, idx) => ({
@@ -1798,7 +1846,7 @@ let audioCtx = null;
         document.getElementById('result-student-name').innerText = `${currentStudent.avatar || ''} ${currentStudent.name}`;
         document.getElementById('result-score').innerText = score;
         document.getElementById('result-feedback').innerText = score >= 76 ? '🎉 Luar biasa! Kamu mencapai KKM 76.' : '💪 Tetap semangat! Evaluasi kembali materi mapel ini.';
-        const rankInfo = getRankInfo(Number(currentStudent.completedQuestionCount) || 0);
+        const rankInfo = getRankInfo(Array.isArray(currentStudent.completedSubjects) ? currentStudent.completedSubjects.length : 0);
         document.getElementById('result-rank-update').innerHTML = `
             <div class="badge ${rankInfo.badgeClass}" style="font-size: 14px; padding: 8px 16px;">
                 Tingkatan Saat Ini: ${rankInfo.icon} <strong>${rankInfo.title}</strong> (${rankInfo.medal})
@@ -1813,7 +1861,7 @@ let audioCtx = null;
         renderExamReview();
         try { confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } }); } catch (_) {}
         showScreen('screen-result');
-        setTimeout(() => showMedalLevelUp(getRankInfo(Number(currentStudent.completedQuestionCount)||0)), 450);
+        if (didLevelUp) setTimeout(() => showMedalLevelUp(getRankInfo(Array.isArray(currentStudent.completedSubjects) ? currentStudent.completedSubjects.length : 0)), 450);
         setTimeout(() => document.querySelector('#screen-result .btn')?.focus(), 50);
     }
     function escapeReviewText(value) {
@@ -1866,7 +1914,7 @@ let audioCtx = null;
       try{
         const name=String(currentStudent?.name||document.getElementById('result-student-name')?.textContent||'Siswa');
         const score=Number(document.getElementById('result-score')?.textContent||0);
-        const rankInfo=getRankInfo(Number(currentStudent?.completedQuestionCount)||0);
+        const rankInfo=getRankInfo(Array.isArray(currentStudent?.completedSubjects) ? currentStudent.completedSubjects.length : 0);
         const grade=score>=95?'A+':score>=85?'A':score>=75?'B':score>=65?'C':score>=50?'D':'F';
         const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const ctx=canvas.getContext('2d');
         const grad=ctx.createLinearGradient(0,0,1080,1350);grad.addColorStop(0,'#d9f2ff');grad.addColorStop(1,'#8acfff');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1350);
@@ -2080,7 +2128,7 @@ let audioCtx = null;
             return;
         }
         studentAccounts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'})).forEach(u => {
-            const count = Number(u.completedQuestionCount) || 0;
+            const count = Array.isArray(u.completedSubjects) ? u.completedSubjects.length : 0;
             const rank = getRankInfo(count);
             const totalV = u.totalViolations || 0;
             const actuallyOnline = !!u.isOnline && (!u.lastSeen || (Date.now() - Number(u.lastSeen) < 30000));
@@ -2605,7 +2653,7 @@ let audioCtx = null;
       document.getElementById('task-title').scrollIntoView({behavior:'smooth',block:'center'});
     }
     function deleteTeacherTask(id,kind){if(!confirm('Hapus tugas/materi ini?'))return; if(kind==='task')teacherTasks=teacherTasks.filter(t=>t.id!==id);else teacherMaterials=teacherMaterials.filter(t=>t.id!==id);saveTaskCollections();renderTeacherTasks();renderStudentTasks();if(typeof renderDedicatedMaterialList==='function')renderDedicatedMaterialList();if(typeof window.renderSavedMaterials==='function')window.renderSavedMaterials();}
-    function moveSubject(id,dir){const i=subjects.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=subjects.length)return;[subjects[i],subjects[j]]=[subjects[j],subjects[i]];subjects.forEach((s,n)=>s.position=n);saveSubjects();renderTeacherSubjectTable();renderStudentDashboard();}
+    function moveSubject(id,dir){const ordered=subjects.slice().sort((a,b)=>{const ap=Number.isFinite(Number(a.position))?Number(a.position):subjects.indexOf(a);const bp=Number.isFinite(Number(b.position))?Number(b.position):subjects.indexOf(b);return ap-bp;});const i=ordered.findIndex(s=>s.id===id);const j=i+dir;if(i<0||j<0||j>=ordered.length)return;[ordered[i],ordered[j]]=[ordered[j],ordered[i]];ordered.forEach((s,n)=>s.position=n);subjects=ordered;saveSubjects();renderTeacherSubjectTable();renderStudentDashboard();}
 
     function exportResultsImage(){
       if(!results.length)return alert('Belum ada data nilai.');
