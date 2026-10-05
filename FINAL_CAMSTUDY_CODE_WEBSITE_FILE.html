@@ -847,7 +847,6 @@
                             <th>Medali</th>
                             <th>Rekap Absensi</th>
                             <th>Total Pelanggaran</th>
-                            <th>Aksi</th>
                         </tr>
                     </thead>
                     <tbody id="table-monitor-body"></tbody>
@@ -1406,15 +1405,9 @@ let audioCtx = null;
                 subjects=subjR.data; safeSetJSON('asts_subj_v4',subjects);
             }
             if(userR&&Array.isArray(userR.data)){
-                // Hapus juga akun yang diberi tanda hapus individual oleh guru agar HP lama
-                // tidak menghidupkan kembali akun tersebut saat sinkronisasi.
+                // Reset akun dari server menjadi batas waktu penghapusan agar akun lama di HP lain tidak hidup kembali.
                 const resetAt=Number(userR.resetAt||0);
-                const deletedUsers=Array.isArray(userR.deletedUsers)?userR.deletedUsers:[];
-                const localUsers=(resetAt ? studentAccounts.filter(u=>Number(u.createdAt||0)>resetAt) : studentAccounts)
-                    .filter(u=>{
-                        const tombstone=deletedUsers.find(d=>String(d.name||'').trim().toLowerCase()===String(u.name||'').trim().toLowerCase());
-                        return !tombstone || Number(u.createdAt||0)>Number(tombstone.deletedAt||0);
-                    });
+                const localUsers=resetAt ? studentAccounts.filter(u=>Number(u.createdAt||0)>resetAt) : studentAccounts;
                 const merged=mergeByKey(localUsers,userR.data,u=>String(u.name||'').trim().toLowerCase());
                 if(stableSerializeRecords(merged,u=>String(u.name||'').trim().toLowerCase())!==stableSerializeRecords(userR.data,u=>String(u.name||'').trim().toLowerCase()))cloudPush('users',merged);
                 if(JSON.stringify(studentAccounts)!==JSON.stringify(merged))changed=true;
@@ -2289,7 +2282,7 @@ let audioCtx = null;
         const body = document.getElementById('table-monitor-body');
         body.innerHTML = '';
         if (studentAccounts.length === 0) {
-            body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Belum ada siswa yang login.</td></tr>`;
+            body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Belum ada siswa yang login.</td></tr>`;
             return;
         }
         studentAccounts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'id',{sensitivity:'base'})).forEach(u => {
@@ -2316,11 +2309,6 @@ let audioCtx = null;
                 <td><span class="badge badge-primary">${Array.isArray(u.attendanceDates)?u.attendanceDates.length:0} hari hadir</span><br><small>${Array.isArray(u.attendanceDates)&&u.attendanceDates.length?'Terakhir: '+u.attendanceDates[u.attendanceDates.length-1]:'Belum tercatat'}</small></td>
                 <td>
                     ${totalV > 0 ? `<span class="badge badge-danger"><i class="fa-solid fa-triangle-exclamation"></i> ${totalV}x Out Tab</span>` : `<span class="badge badge-success">0 (Bersih)</span>`}
-                </td>
-                <td>
-                    <button type="button" class="btn btn-danger js-delete-student-account" data-student-name="${escapeAttr(String(u.name||''))}" style="padding:6px 10px;font-size:12px;">
-                        <i class="fa-solid fa-trash"></i> Hapus
-                    </button>
                 </td>
             `;
             body.appendChild(tr);
@@ -2991,6 +2979,7 @@ let audioCtx = null;
  const semLabels={kelas10_s1:'LATIHAN • KELAS 10 SEMESTER 1',kelas10_s2:'LATIHAN • KELAS 10 SEMESTER 2',kelas11_s1:'LATIHAN • KELAS 11 SEMESTER 1',kelas11_s2:'LATIHAN • KELAS 11 SEMESTER 2',kelas12_s1:'LATIHAN • KELAS 12 SEMESTER 1',kelas12_s2:'LATIHAN • KELAS 12 SEMESTER 2'};
  const defaultIcons={kelas10_s1:'📘',kelas10_s2:'🧠',kelas11_s1:'🧮',kelas11_s2:'💻',kelas12_s1:'🔬',kelas12_s2:'🗺️'};
  const iconChoices=['📘','📚','🧠','✏️','🎯','💻','🔬','🧮','🌐','⭐','📝','📐','🧪','🗺️','🏆','🎓'];
+ let dedicatedMaterialEditingId=null;
  function getIcons(){let local={};try{local=JSON.parse(localStorage.getItem('camstudy_semester_icons_v1')||'{}')||{};}catch(e){}let shared={};try{const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:[];shared=arr.find(x=>x&&x.semesterIcons&&typeof x.semesterIcons==='object')?.semesterIcons||{};}catch(e){}return Object.assign({},defaultIcons,local,shared);}
  window.getCamstudySemesterIcons=getIcons;
  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -3078,50 +3067,35 @@ let audioCtx = null;
 </script>
 <script>
 (function(){
-  /* CAMSTUDY — Bank Soal: only Tambah Soal/Edit Soal. */
-  var state={mode:'add',subjectId:null,index:null,semester:null,oldImage:''};
+  /* CAMSTUDY — dedicated Bank Soal Add/Edit controller.
+     This patch is intentionally limited to Tambah Soal/Edit Soal. */
+  var editState={mode:'add',subjectId:null,index:null,semester:null,oldImage:''};
   function el(id){return document.getElementById(id);}
-  function semester(){return el('manage-semester')?.value||activeManageSemester||'kelas10_s1';}
-  function subjectById(id){return Array.isArray(subjects)?subjects.find(function(s){return String(s.id)===String(id);}):null;}
-  function setTitle(mode){
-    var h=document.querySelector('#modal-add-question h3');
-    if(h)h.innerHTML=mode==='edit'?'<i class="fa-solid fa-pen-to-square"></i> Edit Soal':'<i class="fa-solid fa-file-circle-plus"></i> Tambah Soal Baru';
-    var b=el('btn-save-question');if(b)b.textContent=mode==='edit'?'Simpan Perubahan':'Simpan Soal';
-  }
-  function clearForm(){
+  function selectedSemester(){return el('manage-semester')?.value || 'kelas10_s1';}
+  function getSubject(id){return (typeof subjects!=='undefined'&&Array.isArray(subjects)) ? subjects.find(function(s){return String(s.id)===String(id);}) : null;}
+  function qset(subj,sem){return typeof getQuestionSet==='function' ? getQuestionSet(subj,sem,true) : (subj.questionSets?.[sem]||(subj.questionSets[sem]=[]));}
+  function resetFormOnly(){
     ['q-text','q-opt-0','q-opt-1','q-opt-2','q-opt-3','q-exp'].forEach(function(id){var x=el(id);if(x)x.value='';});
     document.querySelectorAll('.q-correct-check').forEach(function(x){x.checked=false;});
     var img=el('q-image');if(img)img.value='';
   }
-  function ensureSubjectSelected(){
-    var sel=el('select-subject-manage');
-    var id=sel?.value||'';
-    if(!id && typeof populateSubjectSelect==='function' && Array.isArray(subjects) && subjects.length){
-      populateSubjectSelect(subjects[0].id);
-      id=sel?.value||subjects[0].id;
-      if(sel)sel.value=id;
-    }
-    return subjectById(id);
+  function setTitle(mode){
+    var h=document.querySelector('#modal-add-question h3');
+    if(h)h.innerHTML=mode==='edit' ? '<i class="fa-solid fa-pen-to-square"></i> Edit Soal' : '<i class="fa-solid fa-file-circle-plus"></i> Tambah Soal Baru';
+    var b=el('btn-save-question');if(b)b.textContent=mode==='edit'?'Simpan Perubahan':'Simpan Soal';
   }
   function openAdd(){
-    var subj=ensureSubjectSelected();
-    if(!subj){alert('Pilih mata pelajaran terlebih dahulu.');return;}
-    state={mode:'add',subjectId:String(subj.id),index:null,semester:semester(),oldImage:''};
-    activeManageSemester=state.semester;
-    if(el('manage-semester'))el('manage-semester').value=state.semester;
-    clearForm();setTitle('add');
-    var m=el('modal-add-question');if(!m){alert('Form Tambah Soal tidak ditemukan.');return;}
+    editState={mode:'add',subjectId:null,index:null,semester:selectedSemester(),oldImage:''};
+    resetFormOnly();setTitle('add');
+    var m=el('modal-add-question');if(!m)throw new Error('Form Tambah Soal tidak ditemukan.');
     m.classList.add('active');setTimeout(function(){el('q-text')?.focus();},40);
   }
-  function openEdit(subjectId,index,sem){
-    var subj=subjectById(subjectId), targetSem=sem||semester();
-    var set=subj&&typeof getQuestionSet==='function'?getQuestionSet(subj,targetSem):[];
-    var q=set&&set[Number(index)];
-    if(!subj||!q){alert('Soal yang akan diedit tidak ditemukan.');return;}
-    state={mode:'edit',subjectId:String(subj.id),index:Number(index),semester:String(targetSem),oldImage:q.image||''};
-    activeManageSemester=state.semester;
-    if(el('select-subject-manage'))el('select-subject-manage').value=subj.id;
-    if(el('manage-semester'))el('manage-semester').value=state.semester;
+  function openEdit(subjectId,index,semester){
+    var subj=getSubject(subjectId);var sem=semester||selectedSemester();var set=subj?qset(subj,sem):[];var q=set && set[index];
+    if(!subj||!q)throw new Error('Soal yang akan diedit tidak ditemukan.');
+    editState={mode:'edit',subjectId:String(subjectId),index:Number(index),semester:String(sem),oldImage:q.image||''};
+    if(el('select-subject-manage'))el('select-subject-manage').value=subjectId;
+    if(el('manage-semester'))el('manage-semester').value=sem;
     el('q-text').value=q.q||'';
     (Array.isArray(q.options)?q.options:['','','','']).forEach(function(v,i){if(el('q-opt-'+i))el('q-opt-'+i).value=v||'';});
     var answers=Array.isArray(q.answer)?q.answer:[q.answer];
@@ -3129,243 +3103,59 @@ let audioCtx = null;
     el('q-exp').value=q.exp||'';
     if(el('q-image'))el('q-image').value='';
     setTitle('edit');
-    var m=el('modal-add-question');if(!m){alert('Form Edit Soal tidak ditemukan.');return;}
+    var m=el('modal-add-question');if(!m)throw new Error('Form Edit Soal tidak ditemukan.');
     m.classList.add('active');setTimeout(function(){el('q-text')?.focus();},40);
   }
   function closeEditor(){
     var m=el('modal-add-question');if(m)m.classList.remove('active');
-    clearForm();setTitle('add');
-    state={mode:'add',subjectId:null,index:null,semester:semester(),oldImage:''};
+    editState={mode:'add',subjectId:null,index:null,semester:selectedSemester(),oldImage:''};
+    resetFormOnly();setTitle('add');
   }
-  async function save(){
-    var subj=subjectById(state.subjectId)||ensureSubjectSelected();
-    if(!subj){alert('Pilih mata pelajaran terlebih dahulu.');return;}
-    var sem=state.semester||semester();
-    var set=typeof getQuestionSet==='function'?getQuestionSet(subj,sem,true):null;
-    if(!set){alert('Bank Soal tidak siap.');return;}
-    var q=el('q-text')?.value.trim()||'';
-    var opts=[0,1,2,3].map(function(i){return el('q-opt-'+i)?.value.trim()||'';});
-    var correct=[].slice.call(document.querySelectorAll('.q-correct-check:checked')).map(function(c){return Number(c.value);}).filter(function(n){return Number.isInteger(n)&&n>=0&&n<=3;});
+  function saveCore(imageData){
+    var subjectId=el('select-subject-manage')?.value;
+    var subj=getSubject(subjectId);if(!subj)throw new Error('Pilih mata pelajaran terlebih dahulu.');
+    var sem=editState.semester||selectedSemester();var set=qset(subj,sem);
+    var text=el('q-text')?.value.trim()||'';
+    var options=[0,1,2,3].map(function(i){return el('q-opt-'+i)?.value.trim()||'';});
+    var correct=[].slice.call(document.querySelectorAll('.q-correct-check:checked')).map(function(c){return Number(c.value);});
     var exp=el('q-exp')?.value.trim()||'';
-    if(!q||opts.some(function(v){return !v;})){alert('Harap isi pertanyaan dan semua pilihan jawaban.');return;}
-    if(!correct.length){alert('Pilih minimal satu kunci jawaban.');return;}
-    var isEdit=state.mode==='edit'&&String(state.subjectId)===String(subj.id)&&Number.isInteger(state.index)&&state.index>=0&&state.index<set.length;
-    var old=isEdit?set[state.index]:null;
-    var imageFile=el('q-image')?.files?.[0];
-    var finish=function(image){
-      var record=Object.assign({},old||{}, {q:q,options:opts,answer:correct.length>1?correct:correct[0],exp:exp,image:image||old?.image||'',type:old?.type==='multiple'||correct.length>1?'multiple':'choice',updatedAt:Date.now()});
-      if(isEdit)set[state.index]=record;else set.push(Object.assign(record,{createdAt:Date.now()}));
-      activeManageSemester=sem;
-      if(el('manage-semester'))el('manage-semester').value=sem;
-      if(typeof saveSubjects==='function')saveSubjects();
-      if(typeof populateSubjectSelect==='function')populateSubjectSelect(subj.id);
-      if(typeof renderQuestionManager==='function')renderQuestionManager();
-      if(typeof renderTeacherSubjectTable==='function')renderTeacherSubjectTable();
-      if(typeof renderStudentDashboardIfVisible==='function')renderStudentDashboardIfVisible();
-      var wasEdit=isEdit;closeEditor();
-      alert(wasEdit?'Soal berhasil diperbarui.':'Soal berhasil ditambahkan.');
-    };
-    if(imageFile){
-      if(imageFile.size>1500000){alert('Foto soal maksimal 1,5 MB.');return;}
-      var reader=new FileReader();reader.onload=function(){finish(String(reader.result||''));};reader.onerror=function(){alert('Foto soal gagal dibaca.');};reader.readAsDataURL(imageFile);
-    }else finish('');
+    if(!text||options.some(function(x){return !x;}))throw new Error('Harap isi pertanyaan dan semua pilihan jawaban.');
+    if(!correct.length)throw new Error('Pilih minimal satu kunci jawaban.');
+    var isEdit=editState.mode==='edit' && String(editState.subjectId)===String(subjectId) && Number.isInteger(editState.index) && editState.index>=0 && editState.index<set.length;
+    var old=isEdit?set[editState.index]:null;
+    var rec=Object.assign({},old||{}, {q:text,options:options,answer:correct.length>1?correct:correct[0],exp:exp,image:imageData||((old&&old.image)||''),type:(old&&old.type==='multiple')?'multiple':'choice',updatedAt:Date.now()});
+    if(isEdit)set[editState.index]=rec;else set.push(Object.assign(rec,{createdAt:Date.now()}));
+    if(typeof saveSubjects==='function')saveSubjects();
+    if(typeof populateSubjectSelect==='function')populateSubjectSelect(subj.id);
+    if(typeof renderQuestionManager==='function')renderQuestionManager();
+    if(typeof renderTeacherSubjectTable==='function')renderTeacherSubjectTable();
+    if(typeof renderStudentDashboardIfVisible==='function')renderStudentDashboardIfVisible();
+    var wasEdit=isEdit;closeEditor();
+    alert(wasEdit?'Soal berhasil diperbarui.':'Soal berhasil ditambahkan.');
+  }
+  function save(){
+    var file=el('q-image')?.files?.[0];
+    if(file){
+      if(file.size>1500000){alert('Foto soal maksimal 1,5 MB.');return;}
+      var reader=new FileReader();reader.onload=function(){try{saveCore(String(reader.result||''));}catch(e){console.error(e);alert(e.message||'Soal gagal disimpan.');}};reader.onerror=function(){alert('Foto soal gagal dibaca.');};reader.readAsDataURL(file);return;
+    }
+    try{saveCore('');}catch(e){console.error(e);alert(e.message||'Soal gagal disimpan.');}
   }
   window.camstudyOpenAddQuestion=openAdd;
   window.camstudyEditQuestion=openEdit;
   window.camstudySaveQuestion=save;
   window.camstudyCloseQuestion=closeEditor;
+  /* Force the visible Bank Soal controls to use this dedicated controller. */
   function bind(){
     var add=el('btn-add-question-bank');if(add)add.onclick=function(e){e.preventDefault();openAdd();};
     var saveBtn=el('btn-save-question');if(saveBtn)saveBtn.onclick=function(e){e.preventDefault();save();};
     var cancel=el('btn-cancel-question');if(cancel)cancel.onclick=function(e){e.preventDefault();closeEditor();};
+    var list=el('question-list-container');if(list&&!list.dataset.camstudyDedicatedBound){
+      list.dataset.camstudyDedicatedBound='1';
+      list.addEventListener('click',function(e){var b=e.target.closest('.js-edit-question');if(!b)return;e.preventDefault();openEdit(b.dataset.subjectId,Number(b.dataset.questionIndex),b.dataset.semester);});
+    }
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
-})();
-</script>
-
-<script>
-(function(){
-  'use strict';
-  // PATCH TERBATAS: hanya Bank Soal (Tambah/Edit) dan Daftar Akun (Hapus Siswa).
-  function byId(id){return document.getElementById(id);}
-  function subjectFor(id){
-    return Array.isArray(subjects)?subjects.find(function(s){return String(s.id)===String(id);}):null;
-  }
-
-  // Bank Soal: gunakan satu jalur penyimpanan yang mengunci mapel + semester + indeks.
-  window.camstudyOpenAddQuestion=function(){
-    try{
-      var sel=byId('select-subject-manage');
-      var id=sel&&sel.value;
-      if(!id && typeof populateSubjectSelect==='function' && Array.isArray(subjects) && subjects.length){
-        populateSubjectSelect(subjects[0].id);
-        id=sel&&sel.value;
-      }
-      if(!id || !subjectFor(id)){alert('Pilih mata pelajaran terlebih dahulu.');return;}
-      window.__camstudyQuestionEdit={mode:'add',subjectId:String(id),semester:String(byId('manage-semester')?.value||activeManageSemester||'kelas10_s1'),index:null};
-      if(byId('manage-semester'))byId('manage-semester').value=window.__camstudyQuestionEdit.semester;
-      if(typeof resetQuestionForm==='function')resetQuestionForm();
-      if(byId('modal-add-question'))byId('modal-add-question').classList.add('active');
-      setTimeout(function(){byId('q-text')?.focus();},50);
-    }catch(e){console.error(e);alert('Tambah Soal gagal dibuka: '+(e.message||'kesalahan'));}
-  };
-
-  window.camstudyEditQuestion=function(subjectId,index,semester){
-    try{
-      var subj=subjectFor(subjectId), sem=String(semester||activeManageSemester||'kelas10_s1');
-      var set=subj&&typeof getQuestionSet==='function'?getQuestionSet(subj,sem,true):null;
-      var q=set&&set[Number(index)];
-      if(!subj||!q){alert('Soal yang akan diedit tidak ditemukan.');return;}
-      window.__camstudyQuestionEdit={mode:'edit',subjectId:String(subj.id),semester:sem,index:Number(index)};
-      if(byId('select-subject-manage'))byId('select-subject-manage').value=subj.id;
-      if(byId('manage-semester'))byId('manage-semester').value=sem;
-      if(byId('q-text'))byId('q-text').value=q.q||'';
-      (Array.isArray(q.options)?q.options:['','','','']).forEach(function(v,i){if(byId('q-opt-'+i))byId('q-opt-'+i).value=v||'';});
-      var answers=Array.isArray(q.answer)?q.answer:[q.answer];
-      document.querySelectorAll('.q-correct-check').forEach(function(c){c.checked=answers.map(Number).indexOf(Number(c.value))>=0;});
-      if(byId('q-exp'))byId('q-exp').value=q.exp||'';
-      if(byId('q-image'))byId('q-image').value='';
-      var title=document.querySelector('#modal-add-question h3');if(title)title.innerHTML='<i class="fa-solid fa-pen-to-square"></i> Edit Soal';
-      var saveBtn=byId('btn-save-question');if(saveBtn)saveBtn.textContent='Simpan Perubahan';
-      byId('modal-add-question')?.classList.add('active');
-      setTimeout(function(){byId('q-text')?.focus();},50);
-    }catch(e){console.error(e);alert('Edit Soal gagal dibuka: '+(e.message||'kesalahan'));}
-  };
-
-  window.camstudySaveQuestion=function(){
-    var meta=window.__camstudyQuestionEdit||{};
-    var subj=subjectFor(meta.subjectId||byId('select-subject-manage')?.value);
-    if(!subj){alert('Pilih mapel terlebih dahulu.');return;}
-    var sem=String(meta.semester||byId('manage-semester')?.value||activeManageSemester||'kelas10_s1');
-    var set=getQuestionSet(subj,sem,true);
-    var q=String(byId('q-text')?.value||'').trim();
-    var opts=[0,1,2,3].map(function(i){return String(byId('q-opt-'+i)?.value||'').trim();});
-    var correct=[...document.querySelectorAll('.q-correct-check:checked')].map(function(c){return Number(c.value);}).filter(function(n){return Number.isInteger(n)&&n>=0&&n<=3;});
-    var exp=String(byId('q-exp')?.value||'').trim();
-    if(!q||opts.some(function(v){return !v;})){alert('Harap isi pertanyaan dan semua pilihan jawaban.');return;}
-    if(!correct.length){alert('Pilih minimal satu kunci jawaban.');return;}
-    var editing=meta.mode==='edit'&&Number.isInteger(meta.index)&&meta.index>=0&&meta.index<set.length;
-    var old=editing?set[meta.index]:null;
-    var file=byId('q-image')?.files?.[0];
-    function commit(image){
-      var record=Object.assign({},old||{},{
-        q:q,options:opts,answer:correct.length>1?correct:correct[0],
-        exp:exp,image:image||old?.image||'',type:old?.type==='multiple'||correct.length>1?'multiple':'choice',updatedAt:Date.now()
-      });
-      if(editing)set[meta.index]=record;else set.push(Object.assign(record,{createdAt:Date.now()}));
-      activeManageSemester=sem;
-      if(byId('manage-semester'))byId('manage-semester').value=sem;
-      saveSubjects();
-      if(typeof populateSubjectSelect==='function')populateSubjectSelect(subj.id);
-      if(typeof renderQuestionManager==='function')renderQuestionManager();
-      if(typeof renderTeacherSubjectTable==='function')renderTeacherSubjectTable();
-      if(typeof renderStudentDashboardIfVisible==='function')renderStudentDashboardIfVisible();
-      if(byId('modal-add-question'))byId('modal-add-question').classList.remove('active');
-      if(typeof resetQuestionForm==='function')resetQuestionForm();
-      window.__camstudyQuestionEdit=null;
-      alert(editing?'Soal berhasil diperbarui.':'Soal berhasil ditambahkan.');
-      if(ASTS_CLOUD.databaseURL&&sessionStorage.getItem('portal_teacher_token')){
-        cloudRequest('subjects','PUT',{data:subjects,updatedAt:Date.now()}).catch(function(e){console.warn('Sinkronisasi Bank Soal:',e.message);});
-      }
-    }
-    if(file){
-      if(file.size>1500000){alert('Foto soal maksimal 1,5 MB.');return;}
-      var reader=new FileReader();reader.onload=function(){commit(String(reader.result||''));};reader.onerror=function(){alert('Foto soal gagal dibaca.');};reader.readAsDataURL(file);
-    }else commit('');
-  };
-
-  window.resetAllStudentAccounts=async function(){
-    if(!confirm('Reset semua akun siswa? Semua akun siswa yang saat ini terdaftar akan dihapus dari daftar akun dan tidak akan muncul kembali dari perangkat lama.'))return;
-    try{
-      var teacherToken=sessionStorage.getItem('portal_teacher_token')||'';
-      var hasCloud=!!(ASTS_CLOUD&&ASTS_CLOUD.databaseURL);
-      if(hasCloud&&!teacherToken)throw new Error('Sesi guru tidak ditemukan. Silakan login guru kembali.');
-      var resetAt=Date.now();
-      if(hasCloud){
-        var result=await cloudRequest('reset-users','POST',{confirm:'RESET_ALL_STUDENT_ACCOUNTS'});
-        if(!result||result.ok!==true)throw new Error('Server belum mengonfirmasi reset akun.');
-        resetAt=Number(result.resetAt||resetAt);
-      }
-      studentAccounts=[];
-      safeSetJSON('asts_users_v4',[]);
-      if(typeof currentStudent!=='undefined'&&currentStudent){
-        currentStudent=null;
-        try{sessionStorage.removeItem('asts_active_student_name');}catch(_){ }
-      }
-      if(typeof renderStudentMonitorTable==='function')renderStudentMonitorTable();
-      var total=byId('stat-total-siswa');if(total)total.innerText='0';
-      var violations=byId('stat-total-kecurangan');if(violations)violations.innerText='0x';
-      if(typeof broadcastLiveSync==='function')broadcastLiveSync('users');
-      alert(hasCloud?'Semua akun siswa berhasil direset dan perubahan tersimpan di server.':'Semua akun siswa di perangkat ini berhasil direset.');
-    }catch(e){
-      console.error('Reset akun siswa:',e);
-      alert('Reset akun gagal: '+(e.message||'periksa koneksi server.'));
-    }
-  };
-
-  window.deleteStudentAccount=async function(name){
-    var targetName=String(name||'').trim();
-    if(!targetName)return;
-    if(!confirm('Hapus akun siswa "'+targetName+'"? Akun ini tidak akan bisa muncul kembali dari perangkat lama.'))return;
-    try{
-      var teacherToken=sessionStorage.getItem('portal_teacher_token');
-      if(ASTS_CLOUD.databaseURL&&teacherToken){
-        await cloudRequest('delete-user','POST',{name:targetName});
-      }else if(ASTS_CLOUD.databaseURL&&!teacherToken){
-        throw new Error('Sesi guru tidak ditemukan. Silakan buka kembali dashboard guru.');
-      }
-      studentAccounts=Array.isArray(studentAccounts)?studentAccounts.filter(function(u){return String(u.name||'').trim().toLowerCase()!==targetName.toLowerCase();}):[];
-      safeSetJSON('asts_users_v4',studentAccounts);
-      if(typeof broadcastLiveSync==='function')broadcastLiveSync('users');
-      if(typeof renderStudentMonitorTable==='function')renderStudentMonitorTable();
-      var total=byId('stat-total-siswa');if(total)total.innerText=studentAccounts.length;
-      var violations=byId('stat-total-kecurangan');if(violations)violations.innerText=studentAccounts.reduce(function(a,u){return a+Number(u.totalViolations||0);},0)+'x';
-      // Kirim daftar terbaru; server menyimpan tombstone penghapusan sehingga akun lama tidak kembali.
-      if(ASTS_CLOUD.databaseURL&&teacherToken)cloudPush('users',studentAccounts);
-      alert('Akun siswa "'+targetName+'" berhasil dihapus.');
-    }catch(e){
-      console.error('Hapus akun siswa:',e);
-      alert('Akun siswa gagal dihapus: '+(e.message||'periksa koneksi server.'));
-    }
-  };
-
-  function bindAccountDelete(){
-    var body=byId('table-monitor-body');if(!body||body.dataset.deleteBound)return;
-    body.dataset.deleteBound='1';
-    body.addEventListener('click',function(ev){
-      var btn=ev.target.closest('.js-delete-student-account');
-      if(!btn)return;
-      window.deleteStudentAccount(btn.dataset.studentName||'');
-    });
-  }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindAccountDelete,{once:true});else bindAccountDelete();
-
-  // Pastikan tombol Bank Soal benar-benar memakai jalur final ini.
-  // Ini sengaja hanya mengikat Tambah/Edit/Simpan Soal; fitur lain tidak disentuh.
-  window.openModalAddQuestion=window.camstudyOpenAddQuestion;
-  window.editQuestion=window.camstudyEditQuestion;
-  window.saveQuestion=window.camstudySaveQuestion;
-  window.closeModalAddQuestion=window.camstudyCloseQuestion || window.closeModalAddQuestion;
-
-  function bindFinalBankQuestionButtons(){
-    var add=byId('btn-add-question-bank');
-    var save=byId('btn-save-question');
-    var cancel=byId('btn-cancel-question');
-    if(add){
-      add.onclick=function(e){e.preventDefault();e.stopPropagation();window.camstudyOpenAddQuestion();};
-    }
-    if(save){
-      save.onclick=function(e){e.preventDefault();e.stopPropagation();window.camstudySaveQuestion();};
-    }
-    if(cancel){
-      cancel.onclick=function(e){e.preventDefault();e.stopPropagation();
-        if(typeof window.camstudyCloseQuestion==='function')window.camstudyCloseQuestion();
-        else if(typeof window.closeModalAddQuestion==='function')window.closeModalAddQuestion();
-      };
-    }
-  }
-  bindFinalBankQuestionButtons();
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindFinalBankQuestionButtons,{once:true});
 })();
 </script>
 </body>

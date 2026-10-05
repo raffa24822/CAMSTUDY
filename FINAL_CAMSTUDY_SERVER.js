@@ -80,13 +80,7 @@ function mergeData(name, incoming) {
   if (name === 'subjects') return Array.isArray(incoming) ? incoming : [];
   if (name === 'users') {
     const oldUsers = Array.isArray(db.users && db.users.data) ? db.users.data : [];
-    const deletedUsers = Array.isArray(db.users && db.users.deletedUsers) ? db.users.deletedUsers : [];
-    const allowedIncoming = (Array.isArray(incoming) ? incoming : []).filter(u => {
-      const key = normalizeName(u && u.name);
-      const tombstone = deletedUsers.find(x => normalizeName(x && x.name) === key);
-      return !tombstone || Number(u && u.createdAt || 0) > Number(tombstone.deletedAt || 0);
-    });
-    const merged = mergeRecords(oldUsers, allowedIncoming, u => normalizeName(u.name));
+    const merged = mergeRecords(oldUsers, incoming, u => normalizeName(u.name));
     // Counter pelanggaran bersifat kumulatif: sinkronisasi perangkat yang tertinggal
     // tidak boleh menghapus kenaikan yang sudah dicatat endpoint /api/student-violation.
     const maxViolations = new Map();
@@ -118,34 +112,6 @@ app.get('/', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'FINAL_CAMSTUDY_CODE_WEBSITE_FILE.html'));
 });
-app.post('/asts_kelas10/delete-user.json', auth, async (req, res) => {
-  const name = String(req.body && req.body.name || '').trim().slice(0, 80);
-  if (!name) return sendError(res, 400, 'Nama akun siswa diperlukan.');
-  const normalized = normalizeName(name);
-  const now = Date.now();
-  const current = db.users && typeof db.users === 'object' ? db.users : {};
-  const users = Array.isArray(current.data) ? current.data : [];
-  const target = users.find(u => normalizeName(u && u.name) === normalized);
-  if (!target) return sendError(res, 404, 'Akun siswa tidak ditemukan di server.');
-
-  const deletedUsers = Array.isArray(current.deletedUsers) ? current.deletedUsers : [];
-  const withoutDuplicate = deletedUsers.filter(x => normalizeName(x && x.name) !== normalized);
-  withoutDuplicate.push({ name: String(target.name || name), deletedAt: now });
-  db.users = {
-    ...current,
-    data: users.filter(u => normalizeName(u && u.name) !== normalized),
-    deletedUsers: withoutDuplicate,
-    updatedAt: now
-  };
-  try {
-    await persist();
-    return res.json({ ok: true, name: target.name, deletedAt: now, message: 'Akun siswa berhasil dihapus.' });
-  } catch (error) {
-    console.error('Gagal menghapus akun siswa:', error.message);
-    return sendError(res, 500, 'Akun siswa belum berhasil dihapus. Periksa persistent disk hosting.');
-  }
-});
-
 app.post('/asts_kelas10/reset-users.json', auth, async (req, res) => {
   if (!req.body || req.body.confirm !== 'RESET_ALL_STUDENT_ACCOUNTS') {
     return sendError(res, 400, 'Konfirmasi reset akun tidak valid.');
@@ -220,27 +186,17 @@ app.put('/asts_kelas10/:name.json', auth, async (req, res) => {
       const resetAt = Number(previous.resetAt || 0);
       incomingData = body.data.filter(item => Number(item && item.timestamp || 0) > resetAt);
     }
-    if (name === 'users') {
-      if (Number(previous.resetAt || 0) > 0) {
-        const resetAt = Number(previous.resetAt);
-        const resetNames = new Set((Array.isArray(previous.resetNames) ? previous.resetNames : []).map(normalizeName));
-        // Tolak akun lama yang dikirim ulang oleh HP yang belum menerima sinyal reset.
-        // Akun baru dengan nama sama diterima hanya jika createdAt lebih baru dari reset.
-        incomingData = incomingData.filter(user => !resetNames.has(normalizeName(user && user.name)) || Number(user && user.createdAt || 0) > resetAt);
-      }
-      const deletedUsers = Array.isArray(previous.deletedUsers) ? previous.deletedUsers : [];
-      incomingData = incomingData.filter(user => {
-        const tombstone = deletedUsers.find(x => normalizeName(x && x.name) === normalizeName(user && user.name));
-        return !tombstone || Number(user && user.createdAt || 0) > Number(tombstone.deletedAt || 0);
-      });
+    if (name === 'users' && Number(previous.resetAt || 0) > 0) {
+      const resetAt = Number(previous.resetAt);
+      const resetNames = new Set((Array.isArray(previous.resetNames) ? previous.resetNames : []).map(normalizeName));
+      // Tolak akun lama yang dikirim ulang oleh HP yang belum menerima sinyal reset.
+      // Akun baru dengan nama sama diterima hanya jika createdAt lebih baru dari reset.
+      incomingData = body.data.filter(user => !resetNames.has(normalizeName(user && user.name)) || Number(user && user.createdAt || 0) > resetAt);
     }
     db[name] = {
       data: mergeData(name, incomingData),
       updatedAt: Date.now(),
-      ...(name === 'users' ? {
-        ...(previous.resetAt ? { resetAt: previous.resetAt, resetNames: previous.resetNames || [] } : {}),
-        deletedUsers: previous.deletedUsers || []
-      } : {}),
+      ...(name === 'users' && previous.resetAt ? { resetAt: previous.resetAt, resetNames: previous.resetNames || [] } : {}),
       ...(name === 'results' && previous.resetAt ? { resetAt: previous.resetAt } : {})
     };
   }
