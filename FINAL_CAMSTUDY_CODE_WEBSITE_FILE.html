@@ -2910,6 +2910,26 @@ let audioCtx = null;
         const logo=new Image();logo.onload=()=>{try{c.drawImage(logo,42,34,84,84)}catch(_){}finish();};logo.onerror=finish;logo.src=CAMSTUDY_LOGO_DATA;
     }
 
+    async function resetAllStudentAccounts() {
+      if(!confirm('Hapus seluruh akun siswa dari perangkat ini dan server bersama? Tindakan ini tidak dapat dibatalkan.')) return;
+      studentAccounts=[];
+      safeSetJSON('asts_users_v4',studentAccounts);
+      try {
+        if(typeof refreshTeacherDashboard==='function') refreshTeacherDashboard(false);
+      } catch(_) {}
+      if(!ASTS_CLOUD.databaseURL || !ASTS_CLOUD.apiKey){
+        alert('Semua akun siswa pada perangkat ini sudah direset. Server tidak terhubung, jadi data pada perangkat lain mungkin masih ada.');
+        return;
+      }
+      try {
+        const response=await cloudRequest('reset-users','POST',{confirm:'RESET_ALL_STUDENT_ACCOUNTS'});
+        if(!response || response.ok!==true) throw new Error(response?.error||'Reset akun tidak dikonfirmasi server.');
+        alert('Semua akun siswa berhasil direset dari server.');
+      } catch(e) {
+        alert('Reset akun lokal sudah dilakukan, tetapi penghapusan server belum terkonfirmasi: '+(e.message||'periksa koneksi'));
+      }
+    }
+
     async function resetResults() {
       if(!confirm('Hapus seluruh rekap nilai dari perangkat ini dan server bersama? Akun siswa tetap dipertahankan.')) return;
       results=[]; safeSetJSON('asts_res_v4',[]); saveResults(); refreshTeacherDashboard(false);
@@ -2979,7 +2999,6 @@ let audioCtx = null;
  const semLabels={kelas10_s1:'LATIHAN • KELAS 10 SEMESTER 1',kelas10_s2:'LATIHAN • KELAS 10 SEMESTER 2',kelas11_s1:'LATIHAN • KELAS 11 SEMESTER 1',kelas11_s2:'LATIHAN • KELAS 11 SEMESTER 2',kelas12_s1:'LATIHAN • KELAS 12 SEMESTER 1',kelas12_s2:'LATIHAN • KELAS 12 SEMESTER 2'};
  const defaultIcons={kelas10_s1:'📘',kelas10_s2:'🧠',kelas11_s1:'🧮',kelas11_s2:'💻',kelas12_s1:'🔬',kelas12_s2:'🗺️'};
  const iconChoices=['📘','📚','🧠','✏️','🎯','💻','🔬','🧮','🌐','⭐','📝','📐','🧪','🗺️','🏆','🎓'];
- let dedicatedMaterialEditingId=null;
  function getIcons(){let local={};try{local=JSON.parse(localStorage.getItem('camstudy_semester_icons_v1')||'{}')||{};}catch(e){}let shared={};try{const arr=typeof subjects!=='undefined'&&Array.isArray(subjects)?subjects:[];shared=arr.find(x=>x&&x.semesterIcons&&typeof x.semesterIcons==='object')?.semesterIcons||{};}catch(e){}return Object.assign({},defaultIcons,local,shared);}
  window.getCamstudySemesterIcons=getIcons;
  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
