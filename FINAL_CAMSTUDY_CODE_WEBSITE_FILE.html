@@ -3274,6 +3274,35 @@ let audioCtx = null;
     }else commit('');
   };
 
+  window.resetAllStudentAccounts=async function(){
+    if(!confirm('Reset semua akun siswa? Semua akun siswa yang saat ini terdaftar akan dihapus dari daftar akun dan tidak akan muncul kembali dari perangkat lama.'))return;
+    try{
+      var teacherToken=sessionStorage.getItem('portal_teacher_token')||'';
+      var hasCloud=!!(ASTS_CLOUD&&ASTS_CLOUD.databaseURL);
+      if(hasCloud&&!teacherToken)throw new Error('Sesi guru tidak ditemukan. Silakan login guru kembali.');
+      var resetAt=Date.now();
+      if(hasCloud){
+        var result=await cloudRequest('reset-users','POST',{confirm:'RESET_ALL_STUDENT_ACCOUNTS'});
+        if(!result||result.ok!==true)throw new Error('Server belum mengonfirmasi reset akun.');
+        resetAt=Number(result.resetAt||resetAt);
+      }
+      studentAccounts=[];
+      safeSetJSON('asts_users_v4',[]);
+      if(typeof currentStudent!=='undefined'&&currentStudent){
+        currentStudent=null;
+        try{sessionStorage.removeItem('asts_active_student_name');}catch(_){ }
+      }
+      if(typeof renderStudentMonitorTable==='function')renderStudentMonitorTable();
+      var total=byId('stat-total-siswa');if(total)total.innerText='0';
+      var violations=byId('stat-total-kecurangan');if(violations)violations.innerText='0x';
+      if(typeof broadcastLiveSync==='function')broadcastLiveSync('users');
+      alert(hasCloud?'Semua akun siswa berhasil direset dan perubahan tersimpan di server.':'Semua akun siswa di perangkat ini berhasil direset.');
+    }catch(e){
+      console.error('Reset akun siswa:',e);
+      alert('Reset akun gagal: '+(e.message||'periksa koneksi server.'));
+    }
+  };
+
   window.deleteStudentAccount=async function(name){
     var targetName=String(name||'').trim();
     if(!targetName)return;
