@@ -3340,10 +3340,32 @@ let audioCtx = null;
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindAccountDelete,{once:true});else bindAccountDelete();
 
-  // Pastikan tombol yang sudah dirender ulang tetap memanggil jalur final di atas.
+  // Pastikan tombol Bank Soal benar-benar memakai jalur final ini.
+  // Ini sengaja hanya mengikat Tambah/Edit/Simpan Soal; fitur lain tidak disentuh.
   window.openModalAddQuestion=window.camstudyOpenAddQuestion;
   window.editQuestion=window.camstudyEditQuestion;
   window.saveQuestion=window.camstudySaveQuestion;
+  window.closeModalAddQuestion=window.camstudyCloseQuestion || window.closeModalAddQuestion;
+
+  function bindFinalBankQuestionButtons(){
+    var add=byId('btn-add-question-bank');
+    var save=byId('btn-save-question');
+    var cancel=byId('btn-cancel-question');
+    if(add){
+      add.onclick=function(e){e.preventDefault();e.stopPropagation();window.camstudyOpenAddQuestion();};
+    }
+    if(save){
+      save.onclick=function(e){e.preventDefault();e.stopPropagation();window.camstudySaveQuestion();};
+    }
+    if(cancel){
+      cancel.onclick=function(e){e.preventDefault();e.stopPropagation();
+        if(typeof window.camstudyCloseQuestion==='function')window.camstudyCloseQuestion();
+        else if(typeof window.closeModalAddQuestion==='function')window.closeModalAddQuestion();
+      };
+    }
+  }
+  bindFinalBankQuestionButtons();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindFinalBankQuestionButtons,{once:true});
 })();
 </script>
 </body>
